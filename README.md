@@ -6,7 +6,7 @@ You  can find the Open Micro-Manipulator repository.
 
 <div style="display: flex; gap: 10%;">
   <img src="images/gcode_runner.jpg" alt="G-Code runner interface" width="49%">
-  <img src="images/grain_manipulation_2.jpg" alt="Grain manipulation example" width="49%">
+  <img src="images/grain_manipulation_1.jpg" alt="Grain manipulation example" width="49%">
 </div>
 
 ## Installation

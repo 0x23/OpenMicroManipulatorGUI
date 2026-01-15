@@ -11,6 +11,13 @@
 
 ## Installation
 
+1. Clone the repository and navigate into the project directory.
+2. Install the required Python dependencies: `pip install -r requirements.txt`
+3. Run the application: `python main.py`
+
+Make sure you are using a compatible Python version and that your hardware is properly connected before launching the GUI.
+
+
 ## Configuration
 
 The serial port and the live view camera can be found in main.py.

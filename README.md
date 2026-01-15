@@ -9,7 +9,7 @@ You  can find the Open Micro-Manipulator repository.
   <img src="images/grain_manipulation_1.jpg" alt="Grain manipulation example" width="49%">
 </div>
 
-## ⬇️Installation
+## ⬇️ Installation
 
 1. Clone the repository and navigate into the project directory.
 2. Install the required Python dependencies: `pip install -r requirements.txt`
@@ -17,15 +17,15 @@ You  can find the Open Micro-Manipulator repository.
 
 Make sure you are using a compatible Python version and that your hardware is properly connected before launching the GUI.
 
-## 🔧Configuration
+## 🔧 Configuration
 
 The serial port and the live view camera can be found in main.py.
 
-## 📷Camera
+## 📷 Camera
 
 The program can display a live camera feed using the open-cv image capturing framework. For best experience I recommend a camera capable of capturing 60 frames per second (also make sure you are not limited by the cameras shutter time).
 
-## Running G-Code
+## ▶️ Running G-Code
 
 The G-Code runner supports **simple absolute movement commands** of the form: `G0 X Y Z F`. All other commands are ignored.
 You may press the 'Set Origin' button to set the current device loaction as zero position for running the G-Code.

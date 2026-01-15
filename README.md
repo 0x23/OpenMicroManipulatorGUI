@@ -25,7 +25,7 @@ The serial port and the live view camera can be found in main.py.
 
 The program can display a live camera feed using the open-cv image capturing framework. For best experience I recommend a camera capable of capturing 60 frames per second (also make sure you are not limited by the cameras shutter time).
 
-## ▶️ Running G-Code
+## 🧾 Running G-Code
 
 The G-Code runner supports **simple absolute movement commands** of the form: `G0 X Y Z F`. All other commands are ignored.
 You may press the 'Set Origin' button to set the current device loaction as zero position for running the G-Code.

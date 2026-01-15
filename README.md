@@ -19,7 +19,7 @@ Make sure you are using a compatible Python version and that your hardware is pr
 
 ## 🔧 Configuration
 
-The serial port and the live view camera can be found in main.py.
+The serial port and the live view camera configuration can be found in main.py.
 
 ## 📷 Camera
 

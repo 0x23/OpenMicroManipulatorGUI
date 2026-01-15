@@ -1,0 +1,12 @@
+numpy
+numpy-quaternion
+pyserial
+colorama
+numpy
+numpy-quaternion
+pyside6
+scikit-optimize
+pyserial
+opencv-python
+
+pypylon  # only required when using camera from 'Basler'

@@ -1,13 +1,13 @@
 # Open Micro-Manipulator GUI
 
-**OpenMicroManipulatorGUI** is a graphical user interface for controlling an open-source micro-manipulator, featuring a live microscope camera view for real-time feedback.
+**Open Micro-Manipulator GUI** is a small graphical user interface for controlling the [Open Micro-Manipulator](https://github.com/0x23/MicroManipulatorStepper), featuring a live microscope camera view for real-time feedback.
+You  can find the Open Micro-Manipulator repository.
+<br><br>
 
 <div style="display: flex; gap: 10%;">
   <img src="images/gcode_runner.jpg" alt="G-Code runner interface" width="49%">
   <img src="images/grain_manipulation_2.jpg" alt="Grain manipulation example" width="49%">
 </div>
-
----
 
 ## Installation
 
@@ -17,10 +17,13 @@
 
 Make sure you are using a compatible Python version and that your hardware is properly connected before launching the GUI.
 
-
 ## Configuration
 
 The serial port and the live view camera can be found in main.py.
+
+## Camera
+
+The program can display a live camera feed using the open-cv image capturing framework. For best experience I recommend a camera capable of capturing 60 frames per second (also make sure you are not limited by the cameras shutter time).
 
 ## Running G-Code
 

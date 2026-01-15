@@ -1,8 +1,8 @@
-# OpenMicroManipulatorGUI
+# Open Micro-Manipulator GUI
 
 **OpenMicroManipulatorGUI** is a graphical user interface for controlling an open-source micro-manipulator, featuring a live microscope camera view for real-time feedback.
 
-<div style="display: flex; gap: 2%;">
+<div style="display: flex; gap: 10%;">
   <img src="images/gcode_runner.jpg" alt="G-Code runner interface" width="49%">
   <img src="images/grain_manipulation_2.jpg" alt="Grain manipulation example" width="49%">
 </div>

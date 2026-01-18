@@ -27,7 +27,7 @@ The program can display a live camera feed using the open-cv image capturing fra
 
 ## 3-Point Alignment
 
-Computes a workspace transformation that aligns three points to the XY plane. This is useful for microscopy to get the sample plane to stay in fokus in case of sligh misalignments.
+Computes a workspace transformation that aligns three points to the XY plane. This is useful for microscopy to get the sample plane to stay in focus in case of slight misalignments.
 Usage: Set three wayoints spanning a triangle (points must not be on a line) in the XY plane and set the Z height (e.g. so that the sample is in focus at each point). Then press the '3-Point Alignment button'.
 
 ## 🧾 Running G-Code

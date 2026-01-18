@@ -25,6 +25,11 @@ The serial port and the live view camera configuration can be found in main.py.
 
 The program can display a live camera feed using the open-cv image capturing framework. For best experience I recommend a camera capable of capturing 60 frames per second (also make sure you are not limited by the cameras shutter time).
 
+## 3-Point Alignment
+
+Computes a workspace transformation that aligns three points to the XY plane. This is useful for microscopy to get the sample plane to stay in fokus in case of sligh misalignments.
+Usage: Set three wayoints spanning a triangle (points must not be on a line) in the XY plane and set the Z height (e.g. so that the sample is in focus at each point). Then press the '3-Point Alignment button'.
+
 ## 🧾 Running G-Code
 
 The G-Code runner supports **simple absolute movement commands** of the form: `G0 X Y Z F`. All other commands are ignored.

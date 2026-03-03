@@ -419,7 +419,7 @@ class DeviceControlMainWindow(QMainWindow):
 
             def on_iteration_finished():
                 # self.draw_buffer = None
-				pass
+                pass
 
             # start gcode runner here
             self.gcode_runner.run(on_finished, on_iteration_finished, loop_playback=False)

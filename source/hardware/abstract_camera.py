@@ -20,6 +20,11 @@ class AbstractCamera(ABC):
         pass
 
     @abstractmethod
+    def set_gain(self, gain_db: float):
+        """Set the camera's gain in db"""
+        pass
+
+    @abstractmethod
     def start_grabbing(self, single_grab: bool = True):
         """Start grabbing images, optionally in single trigger mode."""
         pass

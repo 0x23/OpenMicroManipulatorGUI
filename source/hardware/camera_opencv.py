@@ -6,6 +6,8 @@
 # --------------------------------------------------------------------------------------
 
 import cv2
+import numpy as np
+
 from hardware.abstract_camera import AbstractCamera
 
 class OpenCVCamera(AbstractCamera):
@@ -21,6 +23,10 @@ class OpenCVCamera(AbstractCamera):
 
     def is_connected(self):
         return self.cap is not None
+
+    def set_gain(self, gain_db: float):
+        if self.cap:
+            self.cap.set(cv2.CAP_PROP_GAIN, gain_db)
 
     def get_exposure_time_range(self):
         # OpenCV doesn't expose this reliably
@@ -50,13 +56,16 @@ class OpenCVCamera(AbstractCamera):
         if not self.cap:
             return
 
+        frame = np.ones((100, 100, 3), dtype=np.uint8)*60
         self.start_grabbing(single_grab=False)
         try:
             while self.grabbing:
-                ret, frame = self.cap.read()
+                ret, new_frame = self.cap.read()
                 if not ret:
-                    print("Frame grab failed")
-                    continue
+                    pass
+                    #print("Frame grab failed")
+                elif new_frame.shape[2] == 3:
+                    frame = cv2.cvtColor(new_frame, cv2.COLOR_BGR2RGB)
 
                 try:
                     if callback(frame) is False:

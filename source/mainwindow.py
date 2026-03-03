@@ -419,7 +419,7 @@ class DeviceControlMainWindow(QMainWindow):
 
             def on_iteration_finished():
                 # self.draw_buffer = None
-                pass
+				pass
 
             # start gcode runner here
             self.gcode_runner.run(on_finished, on_iteration_finished, loop_playback=False)
@@ -430,6 +430,8 @@ class DeviceControlMainWindow(QMainWindow):
         if len(self.waypoints) != 3:
             QMessageBox.critical(self, "Error", "Exactly 3 Waypoints need to be recorded for this function")
             return
+
+        old_workspace_transform = self.oms.get_workspace_transform()
 
         p0 = np.array(self.waypoints[0][0])
         p1 = np.array(self.waypoints[1][0])
@@ -460,13 +462,13 @@ class DeviceControlMainWindow(QMainWindow):
         T[:3, 3] = p0
 
         # Step 5: set coordinate system
-        self.oms.set_workspace_transform(T)
+        self.oms.set_workspace_transform(T @ old_workspace_transform)
+        QMessageBox.information(self, "Alignment Complete", "3-point alignment complete.")
+
         self.oms.move_to(0, 0, 0, self.feedrates[self.step_size_idx])
         self.current_pos = [0, 0, 0]
 
-        self.save_transform(ask=False)
-
-        QMessageBox.information(self, "Alignment Complete", "3-point alignment complete.")
+        # self.save_transform(ask=False)
 
     def load_transform(self):
         data = json.load(open("transform.json"))

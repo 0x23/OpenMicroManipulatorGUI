@@ -34,8 +34,9 @@ def main():
 
     # Setup camera
     # camera = BaslerCamera()
+    # camera.set_exposure_time(16000//32)
+    # camera.set_gain(6.0)
     camera = OpenCVCamera(camera_index=0)
-    camera.set_exposure_time(16000)
 
     # ------------------------------------------------------------------------
 

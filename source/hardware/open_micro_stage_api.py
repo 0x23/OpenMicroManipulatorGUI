@@ -420,7 +420,7 @@ class OpenMicroStageInterface:
 
     def read_device_state_info(self):
         res, msg = self.serial.send_command("M57")
-        return res
+        return res, msg
 
     def set_servo_parameter(self, pos_kp=150, pos_ki=50000, vel_kp=0.2, vel_ki=100, vel_filter_tc=0.0025):
         cmd = f"M55 A{pos_kp:.6f} B{pos_ki:.6f} C{vel_kp:.6f} D{vel_ki:.6f} F{vel_filter_tc:.6f}"

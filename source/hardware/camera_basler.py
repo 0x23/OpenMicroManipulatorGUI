@@ -48,6 +48,10 @@ class BaslerCamera(AbstractCamera):
         if self.camera:
             self.camera.ExposureTime.SetValue(exposure_time_us)
 
+    def set_gain(self, gain_db: float):
+        if self.camera:
+            self.camera.Gain.SetValue(gain_db)
+
     def start_grabbing(self, single_grab=True):
         if not self.camera or self.grabbing:
             return

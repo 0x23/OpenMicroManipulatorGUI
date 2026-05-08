@@ -873,16 +873,21 @@ class DeviceControlMainWindow(QMainWindow):
         else:
             self.waypoint_idx = 1000000
 
-        px0, py0 = self.image_point_tracker.prev_pos
-        px, py = self.image_point_tracker.update(frame)
-        cv2.circle(vis_image, (px, py), 4, (255, 0, 0), thickness=-1)
+        prev_pos = self.image_point_tracker.prev_pos
+        current_pos = self.image_point_tracker.update(frame)
 
-        if self.draw_buffer is None:
-            self.draw_buffer = np.zeros_like(vis_image)
-        else:
-            cv2.line(self.draw_buffer, (px0, py0), (px, py), color=(255, 255, 255), thickness=1)
-            mask = self.draw_buffer[:, :, 0] != 0
-            vis_image[mask, :] = np.array((0, 255, 100), dtype=np.uint8)
+        if current_pos is not None:
+            px, py = current_pos
+            cv2.circle(vis_image, (px, py), 4, (255, 0, 0), thickness=-1)
+
+            if self.draw_buffer is None:
+                self.draw_buffer = np.zeros_like(vis_image)
+            elif prev_pos is not None:
+                cv2.line(self.draw_buffer, prev_pos, current_pos, color=(255, 255, 255), thickness=1)
+
+            if self.draw_buffer is not None:
+                mask = self.draw_buffer[:, :, 0] != 0
+                vis_image[mask, :] = np.array((0, 255, 100), dtype=np.uint8)
 
         self.video_viewer.set_image(vis_image, pixel_per_mm=pixel_per_mm)
         self.last_frame = frame

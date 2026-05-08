@@ -13,6 +13,7 @@ from enum import Enum
 import serial
 import numpy as np
 from colorama import Fore, Style, init
+from serial.tools import list_ports
 
 # --- SerialInterface --------------------------------------------------------------------------------------------------
 
@@ -237,6 +238,24 @@ class OpenMicroStageInterface:
         self.show_log_messages = show_log_messages
         self.disable_message_callbacks = False
 
+    @staticmethod
+    def enumerate_devices():
+        devices = []
+
+        for port in sorted(list_ports.comports(), key=lambda item: item.device):
+            description = (port.description or "").strip()
+            label = port.device
+            if description and description.lower() != "n/a" and description != port.device:
+                label = f"{port.device} - {description}"
+
+            devices.append({
+                "id": port.device,
+                "label": label,
+                "port": port.device,
+            })
+
+        return devices
+
     def connect(self, port: str, baud_rate: int = 921600):
         def version_to_str(v):
             return f"v{v[0]}.{v[1]}.{v[2]}"
@@ -456,18 +475,29 @@ class OpenMicroStageInterface:
         res, msg = self.serial.send_command(cmd)
         return res
 
-    def enable_motors(self, enable):
+    def enable_motors(self, enable: bool):
         cmd = f"M17" if enable else "M18"
         res, msg = self.serial.send_command(cmd, timeout=5)
         return res
 
-    def set_pose(self, x, y, z):
+    def set_pose(self, x: float, y: float, z: float):
         # Convert to homogeneous vector
         transformed = self.workspace_transform @ np.array([x, y, z, 1.0])
         x_t, y_t, z_t = transformed[:3] / transformed[3]
 
         cmd = f"G24 X{x_t:.6f} Y{y_t:.6f} Z{z_t:.6f}" # TODO: A, B ,C
         res, msg = self.serial.send_command(cmd)
+        return res
+
+    def set_tool_output(self, tool_idx: int, output_value: float, immediate: bool = True):
+        # sets the output value for the specified tool
+        cmd = f"M3 T{tool_idx} S{output_value}"
+        res, msg = self.serial.send_command(cmd)
+
+        # send dwell command to update tool value immediately
+        if immediate:
+            self.serial.send_command("G4 S0.001")
+
         return res
 
     def send_command(self, cmd: str, timeout_s: float=5):

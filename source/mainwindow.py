@@ -6,19 +6,21 @@
 # --------------------------------------------------------------------------------------
 
 import json
+import os
+from datetime import datetime
 
 import cv2
 import numpy as np
+
+from gcode_runner import GCodeRunner
+from gui_components.image_viewer_widget import ImageViewerWidget
+from gui_components.realtime_controller_widget import RealtimeControllerWidget
 from hardware.camera_basler import BaslerCamera
 from hardware.camera_opencv import OpenCVCamera
 from hardware.device_discovery import list_camera_devices, list_serial_devices
 from hardware.open_micro_stage_api import OpenMicroStageInterface
 from image_processing.image_point_tracker import ImagePointTracker
 from optical_alignment import OpticalAlignment
-from gui_components.image_viewer_widget import ImageViewerWidget
-from gui_components.realtime_controller_widget import RealtimeControllerWidget
-from gcode_runner import GCodeRunner
-
 from PySide6.QtCore import QMargins, Qt, QThread, Signal
 from PySide6.QtGui import QCloseEvent, QFont
 from PySide6.QtWidgets import (
@@ -35,6 +37,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSpacerItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -99,6 +102,7 @@ class DeviceControlMainWindow(QMainWindow):
         self.waypoint_idx = 1000000
 
         self.image_point_tracker = ImagePointTracker()
+
         self.init_ui()
         self.refresh_serial_devices()
         self.refresh_camera_devices()
@@ -107,6 +111,7 @@ class DeviceControlMainWindow(QMainWindow):
 
         if self.camera is not None and self.camera.is_connected():
             self.connected_camera_label = "Configured Camera"
+            self.apply_camera_settings()
             self.start_camera_stream()
 
         if self.oms.is_connected():
@@ -120,6 +125,7 @@ class DeviceControlMainWindow(QMainWindow):
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
+
         main_h_layout = QHBoxLayout(central_widget)
         main_h_layout.setContentsMargins(12, 12, 12, 12)
         main_h_layout.setSpacing(12)
@@ -141,7 +147,11 @@ class DeviceControlMainWindow(QMainWindow):
         connection_layout.setColumnStretch(1, 3)
 
         connection_layout.addWidget(self.create_label("Serial Device", font_size=11), 0, 0)
-        self.serial_status_label = self.create_label("Disconnected", alignment=Qt.AlignmentFlag.AlignRight, font_size=10)
+        self.serial_status_label = self.create_label(
+            "Disconnected",
+            alignment=Qt.AlignmentFlag.AlignRight,
+            font_size=10,
+        )
         connection_layout.addWidget(self.serial_status_label, 0, 1, 1, 3)
         self.serial_combo = QComboBox()
         connection_layout.addWidget(self.serial_combo, 1, 0, 1, 2)
@@ -153,7 +163,11 @@ class DeviceControlMainWindow(QMainWindow):
         connection_layout.addWidget(self.serial_disconnect_button, 1, 4)
 
         connection_layout.addWidget(self.create_label("Camera", font_size=11), 2, 0)
-        self.camera_status_label = self.create_label("Disconnected", alignment=Qt.AlignmentFlag.AlignRight, font_size=10)
+        self.camera_status_label = self.create_label(
+            "Disconnected",
+            alignment=Qt.AlignmentFlag.AlignRight,
+            font_size=10,
+        )
         connection_layout.addWidget(self.camera_status_label, 2, 1, 1, 4)
         self.camera_combo = QComboBox()
         connection_layout.addWidget(self.camera_combo, 3, 0, 1, 2)
@@ -165,12 +179,10 @@ class DeviceControlMainWindow(QMainWindow):
         connection_layout.addWidget(self.camera_disconnect_button, 3, 4)
 
         main_layout.addLayout(connection_layout)
-
         main_layout.addSpacing(8)
 
         grid = QGridLayout()
         grid.setSpacing(10)
-
         grid.addWidget(self.register_stage_widget(self.create_button("Y-", lambda: self.move_axis(1, -1), font)), 0, 1)
         grid.addWidget(self.register_stage_widget(self.create_button("Z+", lambda: self.move_axis(2, +1), font)), 0, 3)
         grid.addWidget(self.register_stage_widget(self.create_button("X-", lambda: self.move_axis(0, -1), font)), 1, 0)
@@ -183,15 +195,15 @@ class DeviceControlMainWindow(QMainWindow):
         grid.addWidget(self.register_stage_widget(self.create_button("X+", lambda: self.move_axis(0, +1), font)), 1, 2)
         grid.addWidget(self.register_stage_widget(self.create_button("Y+", lambda: self.move_axis(1, +1), font)), 2, 1)
         grid.addWidget(self.register_stage_widget(self.create_button("Z-", lambda: self.move_axis(2, -1), font)), 2, 3)
-
         main_layout.addLayout(grid)
 
-        main_layout.addSpacing(10)
+        main_layout.addSpacing(16)
         main_layout.addWidget(self.create_label("Step Size [µm]"))
 
         step_layout = QHBoxLayout()
         self.step_button_group = QButtonGroup()
         self.step_button_group.setExclusive(True)
+
         for i, val in enumerate(self.step_sizes):
             btn = self.register_stage_widget(
                 self.create_button(str(val * 1000), lambda checked=False, idx=i: self.set_step_size(idx), font)
@@ -209,57 +221,170 @@ class DeviceControlMainWindow(QMainWindow):
             min_val=0.01,
             max_val=1000.0,
             step=1,
-            default=30.00,
+            default=50.0,
             decimals=2,
+            update_immediately=False,
             callback=self.apply_acceleration_setting,
         )
         self.register_stage_widget(self.accel_spinbox)
         main_layout.addLayout(accel_layout)
 
-        main_layout.addSpacing(10)
-        self.waypoint_info_label = self.create_label("Path Control")
-        main_layout.addWidget(self.waypoint_info_label)
+        tool_layout, self.tool_spinbox = self.create_spinbox(
+            label_text="Tool 1:",
+            min_val=0.0,
+            max_val=1.0,
+            step=0.1,
+            default=0.0,
+            decimals=2,
+            update_immediately=True,
+            callback=self.apply_tool_setting,
+        )
+        self.register_stage_widget(self.tool_spinbox)
+        main_layout.addLayout(tool_layout)
 
-        wp_layout = QGridLayout()
-        wp_layout.addWidget(self.register_stage_widget(self.create_button("Add Waypoint", self.add_waypoint, font)), 0, 0)
-        wp_layout.addWidget(self.register_stage_widget(self.create_button("Clear Waypoints", self.clear_waypoints, font)), 0, 1)
-        wp_layout.addWidget(self.register_stage_widget(self.create_button("Run Path", self.run_path, font)), 1, 0)
-        wp_layout.addWidget(self.register_stage_widget(self.create_button("Save Path", self.save_path, font)), 1, 1)
-        main_layout.addLayout(wp_layout)
-
-        self.update_waypoint_info()
-
-        main_layout.addSpacing(10)
-        main_layout.addWidget(self.create_label("Advanced"))
-
-        advanced_frame = QWidget()
-        advanced_frame.setObjectName("AdvancedFrame")
-
-        layout = QGridLayout(advanced_frame)
-        layout.setContentsMargins(QMargins(0, 0, 0, 0))
-
+        main_layout.addSpacing(16)
         self.realtime_control_widget = self.register_stage_widget(
             RealtimeControllerWidget(self.video_viewer.viewport(), self.oms)
         )
-        layout.addWidget(self.realtime_control_widget, 0, 0, 1, 2)
-        layout.addItem(QSpacerItem(0, 10, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed), 1, 0, 1, 2)
+        main_layout.addWidget(self.realtime_control_widget)
         self.realtime_control_widget.stop_control_signal.connect(self.on_stop_realtime_control)
 
-        self.run_gcode_button = self.register_stage_widget(self.create_button("Run GCode", self.run_gcode_from_file, font))
+        main_layout.addSpacing(8)
+        tabs = QTabWidget()
+
+        advanced_tab = QWidget()
+        advanced_tab.setObjectName("AdvancedTab")
+        advanced_layout = QGridLayout(advanced_tab)
+        advanced_layout.setContentsMargins(QMargins(0, 11, 0, 0))
+
+        advanced_layout.addWidget(
+            self.register_stage_widget(self.create_button("3-Point Alignment", self.run_3point_alignment, font)),
+            1,
+            0,
+        )
+        advanced_layout.addWidget(
+            self.register_stage_widget(self.create_button("Set Origin", self.set_origin, font)),
+            1,
+            1,
+        )
+
+        tracking_button = self.create_button("Set Tracking Point", self.set_tracking_point, font)
+        self.register_camera_widget(tracking_button)
+        advanced_layout.addWidget(tracking_button, 2, 0)
+
+        clear_button = self.create_button("Clear", self.clear_draw_buffer, font)
+        self.register_camera_widget(clear_button)
+        advanced_layout.addWidget(clear_button, 2, 1)
+
+        advanced_layout.addWidget(
+            self.register_stage_widget(self.create_button("Load Transform", self.load_transform, font)),
+            3,
+            0,
+        )
+        advanced_layout.addWidget(
+            self.register_stage_widget(self.create_button("Save Transform", self.save_transform, font)),
+            3,
+            1,
+        )
+
+        fiber_button = self.create_button("Fiber Alignment", self.run_fiber_alignment, font)
+        self.register_stage_widget(fiber_button)
+        self.register_camera_widget(fiber_button)
+        advanced_layout.addWidget(fiber_button, 4, 0)
+        advanced_layout.addItem(QSpacerItem(0, 10, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
+        tabs.addTab(advanced_tab, "Advanced")
+
+        path_tab = QWidget()
+        path_tab.setObjectName("PathTab")
+        path_layout = QVBoxLayout(path_tab)
+
+        self.waypoint_info_label = self.create_label("Path Control")
+        path_layout.addWidget(self.waypoint_info_label)
+
+        wp_layout = QGridLayout()
+        wp_layout.addWidget(
+            self.register_stage_widget(self.create_button("Add Waypoint", self.add_waypoint, font)),
+            0,
+            0,
+        )
+        wp_layout.addWidget(
+            self.register_stage_widget(self.create_button("Clear Waypoints", self.clear_waypoints, font)),
+            0,
+            1,
+        )
+        wp_layout.addWidget(
+            self.register_stage_widget(self.create_button("Run Path", self.run_path, font)),
+            1,
+            0,
+        )
+        wp_layout.addWidget(
+            self.register_stage_widget(self.create_button("Save Path", self.save_path, font)),
+            1,
+            1,
+        )
+        path_layout.addLayout(wp_layout)
+
+        self.run_gcode_button = self.register_stage_widget(
+            self.create_button("Run GCode", self.run_gcode_from_file, font)
+        )
         self.run_gcode_button.setCheckable(True)
-        layout.addWidget(self.run_gcode_button, 2, 0, 1, 2)
-        layout.addItem(QSpacerItem(0, 10, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed), 3, 0, 1, 2)
+        path_layout.addWidget(self.run_gcode_button)
+        tabs.addTab(path_tab, "Path / GCode")
 
-        layout.addWidget(self.register_stage_widget(self.create_button("3-Point Alignment", self.run_3point_alignment, font)), 4, 0)
-        layout.addWidget(self.register_stage_widget(self.create_button("Set Origin", self.set_origin, font)), 4, 1)
-        layout.addWidget(self.register_camera_widget(self.create_button("Set Tracking Point", self.set_tracking_point, font)), 5, 0)
-        layout.addWidget(self.register_camera_widget(self.create_button("Clear", self.clear_draw_buffer, font)), 5, 1)
-        layout.addWidget(self.register_stage_widget(self.create_button("Load Transform", self.load_transform, font)), 6, 0)
-        layout.addWidget(self.register_stage_widget(self.create_button("Save Transform", self.save_transform, font)), 6, 1)
-        layout.addWidget(self.register_stage_widget(self.create_button("Fiber Alignment", self.run_fiber_alignment, font)), 7, 0)
-        layout.addWidget(self.register_stage_widget(self.create_button("Home", self.home, font)), 7, 1)
-        main_layout.addWidget(advanced_frame)
+        camera_tab = QWidget()
+        camera_tab.setObjectName("CameraTab")
+        camera_layout = QVBoxLayout(camera_tab)
 
+        exposure_layout, self.exposure_spinbox = self.create_spinbox(
+            label_text="Exposure:",
+            min_val=-50,
+            max_val=100000,
+            step=1,
+            default=1000,
+            decimals=0,
+            update_immediately=True,
+            callback=self.apply_camera_settings,
+        )
+        self.register_camera_widget(self.exposure_spinbox)
+        camera_layout.addLayout(exposure_layout)
+
+        gain_layout, self.gain_spinbox = self.create_spinbox(
+            label_text="Gain:",
+            min_val=-24,
+            max_val=100,
+            step=1,
+            default=0,
+            decimals=0,
+            update_immediately=True,
+            callback=self.apply_camera_settings,
+        )
+        self.register_camera_widget(self.gain_spinbox)
+        camera_layout.addLayout(gain_layout)
+
+        wb_layout, self.white_balance_spinbox = self.create_spinbox(
+            label_text="White Balance:",
+            min_val=0,
+            max_val=10000,
+            step=100,
+            default=3000,
+            decimals=0,
+            update_immediately=True,
+            callback=self.apply_camera_settings,
+        )
+        self.register_camera_widget(self.white_balance_spinbox)
+        camera_layout.addLayout(wb_layout)
+
+        camera_layout.addItem(QSpacerItem(0, 10, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
+        screenshot_button = self.create_button("Save Screenshot", self.save_screenshot, font)
+        self.register_camera_widget(screenshot_button)
+        camera_layout.addWidget(screenshot_button)
+        tabs.addTab(camera_tab, "Camera")
+
+        self.update_waypoint_info()
+        main_layout.addWidget(tabs)
+
+        home_button = self.register_stage_widget(self.create_button("Home", self.home, font))
+        main_layout.addWidget(home_button)
         main_layout.addItem(QSpacerItem(0, 8, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
 
         self.video_viewer.setMinimumWidth(600)
@@ -272,6 +397,7 @@ class DeviceControlMainWindow(QMainWindow):
         left_panel_scroll.setWidget(left_panel)
         left_panel_scroll.setFixedWidth(396)
         left_panel_scroll.setStyleSheet("QScrollArea { border: none; background-color: transparent; }")
+        self.tool_panel = left_panel_scroll
 
         main_h_layout.addWidget(left_panel_scroll)
         main_h_layout.addWidget(self.video_viewer, stretch=1)
@@ -303,7 +429,7 @@ class DeviceControlMainWindow(QMainWindow):
         return btn
 
     @staticmethod
-    def create_spinbox(label_text, min_val, max_val, step, default, decimals, callback):
+    def create_spinbox(label_text, min_val, max_val, step, default, decimals, update_immediately, callback):
         layout = QHBoxLayout()
         label = QLabel(label_text)
         spinbox = QDoubleSpinBox()
@@ -311,11 +437,14 @@ class DeviceControlMainWindow(QMainWindow):
         spinbox.setSingleStep(step)
         spinbox.setValue(default)
         spinbox.setDecimals(decimals)
-        spinbox.editingFinished.connect(callback)
+
+        if update_immediately:
+            spinbox.valueChanged.connect(callback)
+        else:
+            spinbox.editingFinished.connect(callback)
 
         layout.addWidget(label)
         layout.addWidget(spinbox)
-
         return layout, spinbox
 
     def register_stage_widget(self, widget):
@@ -328,8 +457,14 @@ class DeviceControlMainWindow(QMainWindow):
 
     def set_stylesheet(self):
         self.setStyleSheet("""
+            QTabWidget > QStackedWidget > QWidget,
+            QTabWidget QLabel {
+                background-color: #353535;
+            }
+
             QWidget {
-                background-color: #2b2b2b; color: white;
+                background-color: #2b2b2b;
+                color: white;
             }
 
             QPushButton, QComboBox, QDoubleSpinBox {
@@ -346,23 +481,46 @@ class DeviceControlMainWindow(QMainWindow):
                 selection-background-color: #3b72d1;
             }
 
-            QWidget#AdvancedFrame QPushButton { background-color: #4d5291; }
-            QWidget#AdvancedFrame QPushButton:hover { background-color: #5b72d1; }
-            QWidget#AdvancedFrame QPushButton:pressed { background-color: #32a877; }
-            QWidget#AdvancedFrame QPushButton:checked { background-color: #32a877; }
-
             QPushButton:hover {
                 background-color: #3b72d1;
             }
-            QPushButton:checked {
-                background-color: #32a877;
-            }
+
+            QPushButton:checked,
             QPushButton:pressed {
                 background-color: #32a877;
             }
+
+            QWidget#AdvancedTab QPushButton {
+                background-color: #4d5291;
+            }
+
+            QWidget#AdvancedTab QPushButton:hover {
+                background-color: #5b72d1;
+            }
+
+            QWidget#AdvancedTab QPushButton:checked,
+            QWidget#AdvancedTab QPushButton:pressed {
+                background-color: #32a877;
+            }
+
             QPushButton:disabled, QComboBox:disabled, QDoubleSpinBox:disabled {
                 background-color: #4a4a4a;
                 color: #b0b0b0;
+            }
+
+            QTabWidget::pane {
+                border: none;
+            }
+
+            QTabBar::tab {
+                background: #353535;
+                padding: 6px;
+                border: 1px solid #282828;
+            }
+
+            QTabBar::tab:selected {
+                background: #856A51;
+                border-bottom: none;
             }
         """)
 
@@ -452,6 +610,7 @@ class DeviceControlMainWindow(QMainWindow):
             self.current_pos = list(position)
 
         self.apply_acceleration_setting()
+        self.apply_tool_setting()
         self.update_connection_state()
 
     def disconnect_stage(self):
@@ -466,7 +625,10 @@ class DeviceControlMainWindow(QMainWindow):
 
     def create_camera_from_config(self, config):
         if config["kind"] == "opencv":
-            return OpenCVCamera(camera_index=config["index"], backend=config["backend"])
+            return OpenCVCamera(
+                camera_index=config["index"],
+                backend=config.get("backend", cv2.CAP_ANY),
+            )
 
         if config["kind"] == "basler":
             return BaslerCamera(device_serial=config["id"])
@@ -498,8 +660,28 @@ class DeviceControlMainWindow(QMainWindow):
         self.camera = camera
         self.connected_camera_label = config["label"]
         self.clear_visual_state()
+        self.apply_camera_settings()
         self.start_camera_stream()
         self.update_connection_state()
+
+    def apply_camera_settings(self):
+        if self.camera is None or not self.camera.is_connected():
+            return
+
+        try:
+            self.camera.set_exposure_time(self.exposure_spinbox.value())
+        except Exception:
+            pass
+
+        try:
+            self.camera.set_gain(self.gain_spinbox.value())
+        except Exception:
+            pass
+
+        try:
+            self.camera.set_white_balance(self.white_balance_spinbox.value())
+        except Exception:
+            pass
 
     def start_camera_stream(self):
         if self.camera is None or not self.camera.is_connected():
@@ -557,6 +739,10 @@ class DeviceControlMainWindow(QMainWindow):
         if self.oms.is_connected():
             self.oms.set_max_acceleration(self.accel_spinbox.value(), 5000)
 
+    def apply_tool_setting(self):
+        if self.oms.is_connected():
+            self.oms.set_tool_output(0, self.tool_spinbox.value(), immediate=True)
+
     def require_stage_connection(self):
         if self.oms.is_connected():
             return True
@@ -575,7 +761,6 @@ class DeviceControlMainWindow(QMainWindow):
         if not self.require_stage_connection() or not self.require_camera_connection():
             return
 
-        return
         aligner = OpticalAlignment(self.oms, self.camera)
         pos, _ = aligner.optimize()
         self.camera.start_grabbing(False)
@@ -851,6 +1036,17 @@ class DeviceControlMainWindow(QMainWindow):
         self.disconnect_stage()
         super().closeEvent(event)
 
+    def save_screenshot(self):
+        if self.last_frame is None:
+            return
+
+        os.makedirs("./screenshots", exist_ok=True)
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f"screenshot_{timestamp}.png"
+        path = os.path.join("./screenshots", filename)
+        img = cv2.cvtColor(self.last_frame, cv2.COLOR_RGB2BGR)
+        cv2.imwrite(path, img)
+
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_A:
             self.move_axis(0, -1)
@@ -861,6 +1057,14 @@ class DeviceControlMainWindow(QMainWindow):
         elif event.key() == Qt.Key.Key_S:
             self.move_axis(1, +1)
         elif event.key() == Qt.Key.Key_R:
+            self.move_axis(2, +1)
+        elif event.key() == Qt.Key.Key_F:
+            self.move_axis(2, -1)
+        elif event.key() == Qt.Key.Key_K:
             self.add_waypoint()
+        elif event.key() == Qt.Key.Key_P:
+            self.save_screenshot()
+        elif event.key() == Qt.Key.Key_F11:
+            self.tool_panel.setVisible(not self.tool_panel.isVisible())
         else:
             super().keyPressEvent(event)

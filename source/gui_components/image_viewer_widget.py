@@ -62,7 +62,7 @@ class ImageViewerWidget(QGraphicsView):
     def draw_center_cross(self, painter, line_length=40, color=(10, 220, 50), thickness=1, gap=10):
         width, height = self.viewport().width(), self.viewport().height()
         cx, cy = width // 2, height // 2
-        q_color = QColor(color[2], color[1], color[0], 100)
+        q_color = QColor(color[2], color[1], color[0], 50)
         pen = QPen(q_color)
         pen.setWidth(thickness)
         painter.setPen(pen)

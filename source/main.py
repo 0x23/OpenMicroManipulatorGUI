@@ -21,7 +21,6 @@ from mainwindow import DeviceControlMainWindow
 
 def main():
     oms = OpenMicroStageInterface(show_communication=False, show_log_messages=True)
-
     app = QApplication()
     gui = DeviceControlMainWindow(oms)
     gui.show()

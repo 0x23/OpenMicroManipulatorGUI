@@ -16,6 +16,19 @@ class ImagePointTracker:
         self.prev_img = None
         self.prev_pos = (0,0)
 
+    @staticmethod
+    def _to_gray(img):
+        if img is None:
+            return None
+
+        if len(img.shape) == 2:
+            return img
+
+        if img.shape[2] == 1:
+            return img[:, :, 0]
+
+        return cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+
     def reset(self):
         self.prev_pos = (0,0)
         self.template = None
@@ -24,7 +37,7 @@ class ImagePointTracker:
         """
         Set the initial point to track and extract the template patch.
         """
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        gray = self._to_gray(img)
         x, y = int(x), int(y)
         half = self.patch_size // 2
 
@@ -41,7 +54,7 @@ class ImagePointTracker:
         if self.template is None or self.prev_pos is None:
             return 0, 0
 
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        gray = self._to_gray(img)
         x0, y0 = self.prev_pos
         r = self.search_radius
         h = self.patch_size // 2

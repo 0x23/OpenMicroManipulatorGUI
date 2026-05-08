@@ -66,18 +66,23 @@ class SerialInterface:
         self._response_string = ""
         self._response_status = None
         self._response_error_msg = None
+        self._stop_event = threading.Event()
+        self._reader_thread = None
 
-        self.connect(self.reconnect_timeout)
-
-        # Start reader thread
-        self._reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
-        self._reader_thread.start()
+        if self.connect(self.reconnect_timeout):
+            self._reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
+            self._reader_thread.start()
+            while not self._reader_thread.is_alive():
+                time.sleep(0.001)
 
 
     def connect(self, timeout):
         """
         Try to open the serial port. Retry until timeout expires.
         """
+        if self._stop_event.is_set():
+            return False
+
         deadline = time.time() + timeout
         print(Fore.MAGENTA, end='')
         print(f"[SerialInterface] Connecting to port '{self.port}'...", end='')
@@ -102,7 +107,7 @@ class SerialInterface:
         Asynchronous reader loop, collecting serial data into a buffer
         """
         buffer = ""
-        while True:
+        while not self._stop_event.is_set():
             try:
                 if self.serial is not None and self.serial.in_waiting:
                     char = self.serial.read(1).decode('ascii', errors='ignore')
@@ -115,6 +120,9 @@ class SerialInterface:
                 else:
                     time.sleep(0.001)
             except (serial.SerialException, OSError) as e:
+                if self._stop_event.is_set():
+                    break
+
                 print(Fore.MAGENTA+f"[SerialInterface] Lost connection: {e}"+Style.RESET_ALL)
                 try:
                     if self.serial is not None and self.serial.is_open:
@@ -202,8 +210,13 @@ class SerialInterface:
 
     def close(self):
         """Closes the serial port."""
+        self._stop_event.set()
         if self.serial and self.serial.is_open:
             self.serial.close()
+        self.serial = None
+
+        if self._reader_thread and self._reader_thread.is_alive():
+            self._reader_thread.join(timeout=1.0)
 
 # --- OpenMicroStageInterface ------------------------------------------------------------------------------------------
 
@@ -228,11 +241,18 @@ class OpenMicroStageInterface:
         def version_to_str(v):
             return f"v{v[0]}.{v[1]}.{v[2]}"
 
-        if self.serial is not None: self.disconnect()
-        self.serial = SerialInterface(port, baud_rate,
-                                      log_msg_callback=self.log_msg_callback,
-                                      command_msg_callback=self.command_msg_callback,
-                                      unsolicited_msg_callback=self.unsolicited_msg_callback)
+        if self.serial is not None:
+            self.disconnect()
+
+        serial_interface = SerialInterface(port, baud_rate,
+                                           log_msg_callback=self.log_msg_callback,
+                                           command_msg_callback=self.command_msg_callback,
+                                           unsolicited_msg_callback=self.unsolicited_msg_callback)
+        if serial_interface.serial is None:
+            serial_interface.close()
+            return False
+
+        self.serial = serial_interface
 
         self.disable_message_callbacks = True
         fw_version = self.read_firmware_version()
@@ -241,9 +261,14 @@ class OpenMicroStageInterface:
         if fw_version < min_fw_version:
             print(Fore.MAGENTA + f"Firmware version {version_to_str(fw_version)} incompatible. "
                                  f"At least {version_to_str(min_fw_version)} required" + Style.RESET_ALL)
+            self.serial.close()
             self.serial = None
+            print('')
+            self.disable_message_callbacks = False
+            return False
         print('')
         self.disable_message_callbacks = False
+        return True
 
     def disconnect(self):
         if self.serial is not None:
@@ -294,7 +319,11 @@ class OpenMicroStageInterface:
         if ok != SerialInterface.ReplyStatus.OK or len(response) == 0:
             return 0, 0, 0
 
-        major, minor, patch = map(int, re.match(r'v(\d+)\.(\d+)\.(\d+)', response).groups())
+        match = re.match(r'v(\d+)\.(\d+)\.(\d+)', response)
+        if match is None:
+            return 0, 0, 0
+
+        major, minor, patch = map(int, match.groups())
         return major,minor,patch
 
     def home(self, axis_list=None):

@@ -104,7 +104,7 @@ class UpdateWorker(QThread):
 
             # print(f"Move to: {p[0]:10.7f}, {p[1]:10.7f}, {p[2]:10.7f}")
 
-            # time.sleep(1.0/self.update_frequency)
+            time.sleep(1.0 / max(self.update_frequency, 1))
 
 
 class RealtimeControllerWidget(QWidget):
@@ -167,10 +167,12 @@ class RealtimeControllerWidget(QWidget):
         self.setLayout(layout)
 
     def get_current_pose(self):
+        if self.update_thread is None:
+            return [0.0, 0.0, 0.0]
         return self.update_thread.get_current_pose()
 
     def is_running(self):
-        return self.update_thread.running
+        return self.update_thread is not None and self.update_thread.running
 
     def read_gui_settings(self):
         lx = ly = self.spinbox_xy_range.value()
@@ -178,6 +180,13 @@ class RealtimeControllerWidget(QWidget):
         self.motion_limits = np.array([lx, ly, lz], np.float32)
 
     def start_control(self):
+        if not self.oms.is_connected():
+            self.mouse_control_button.blockSignals(True)
+            self.mouse_control_button.setChecked(False)
+            self.mouse_control_button.blockSignals(False)
+            self.mouse_control_active = False
+            return
+
         self.start_control_signal.emit()
         QApplication.setOverrideCursor(QCursor(Qt.CursorShape.BlankCursor))
         self.base_widget.setFocus()
@@ -199,6 +208,7 @@ class RealtimeControllerWidget(QWidget):
         QApplication.restoreOverrideCursor()
         if self.update_thread is not None:
             self.update_thread.stop()
+            self.update_thread = None
         self.stop_control_signal.emit()
 
     def on_mouse_control_toggled(self, checked):

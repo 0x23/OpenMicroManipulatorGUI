@@ -5,14 +5,13 @@
 # Author:  M. S. (diffraction limited)
 # --------------------------------------------------------------------------------------
 
-import os
 import json
-
-from hardware.camera_opencv import OpenCVCamera
-from hardware.camera_basler import BaslerCamera
 
 import cv2
 import numpy as np
+from hardware.camera_basler import BaslerCamera
+from hardware.camera_opencv import OpenCVCamera
+from hardware.device_discovery import list_camera_devices, list_serial_devices
 from hardware.open_micro_stage_api import OpenMicroStageInterface
 from image_processing.image_point_tracker import ImagePointTracker
 from optical_alignment import OpticalAlignment
@@ -20,20 +19,75 @@ from gui_components.image_viewer_widget import ImageViewerWidget
 from gui_components.realtime_controller_widget import RealtimeControllerWidget
 from gcode_runner import GCodeRunner
 
+from PySide6.QtCore import QMargins, Qt, QThread, Signal
+from PySide6.QtGui import QCloseEvent, QFont
 from PySide6.QtWidgets import (
-    QApplication, QWidget, QPushButton, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout, QMessageBox, QButtonGroup,
-    QDoubleSpinBox, QFileDialog, QMainWindow, QFrame, QSpacerItem, QSizePolicy
+    QButtonGroup,
+    QComboBox,
+    QDoubleSpinBox,
+    QFileDialog,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QSpacerItem,
+    QVBoxLayout,
+    QWidget,
 )
-from PySide6.QtCore import Qt, QMargins
-from PySide6.QtGui import QFont
+
+
+class CameraStreamWorker(QThread):
+    frame_ready = Signal(object)
+    stream_error = Signal(str)
+
+    def __init__(self, camera, parent=None):
+        super().__init__(parent)
+        self.camera = camera
+        self.running = True
+
+    def stop(self):
+        self.running = False
+        try:
+            self.camera.stop_grabbing()
+        except Exception:
+            pass
+        self.wait(1500)
+
+    def _handle_frame(self, frame):
+        if not self.running:
+            return False
+
+        self.frame_ready.emit(frame)
+        return True
+
+    def run(self):
+        try:
+            self.camera.grab_loop(callback=self._handle_frame, timeout_ms=500)
+        except Exception as exc:
+            if self.running:
+                self.stream_error.emit(str(exc))
+
 
 class DeviceControlMainWindow(QMainWindow):
-    def __init__(self, oms: OpenMicroStageInterface, camera):
+    def __init__(self, oms: OpenMicroStageInterface, camera=None):
         super().__init__()
-        # Data and State
+
         self.oms = oms
         self.camera = camera
+        self.camera_stream_worker = None
         self.gcode_runner = None
+
+        self.pixel_per_mm = 2000.0
+        self.connected_stage_label = None
+        self.connected_camera_label = None
+        self.serial_devices = []
+        self.camera_devices = []
+        self.stage_dependent_widgets = []
+        self.camera_dependent_widgets = []
 
         self.last_frame = None
         self.draw_buffer = None
@@ -44,68 +98,112 @@ class DeviceControlMainWindow(QMainWindow):
         self.waypoints = []
         self.waypoint_idx = 1000000
 
-        # Trackers
         self.image_point_tracker = ImagePointTracker()
         self.init_ui()
+        self.refresh_serial_devices()
+        self.refresh_camera_devices()
+        self.show_placeholder_frame()
+        self.update_connection_state()
+
+        if self.camera is not None and self.camera.is_connected():
+            self.connected_camera_label = "Configured Camera"
+            self.start_camera_stream()
 
         if self.oms.is_connected():
-            self.current_pos = list(self.oms.read_current_position(True))
-            self.oms.set_max_acceleration(self.accel_spinbox.value(), 5000)
+            self.connected_stage_label = "Configured Serial Device"
+            self.on_stage_connected()
 
     def init_ui(self):
         self.setWindowTitle("Open Micro-Manipulator Control")
         self.setStyleSheet("background-color: #2b2b2b; color: white;")
+        self.setMinimumSize(1280, 820)
 
-        # Central Widget and Main Horizontal Layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_h_layout = QHBoxLayout(central_widget)
+        main_h_layout.setContentsMargins(12, 12, 12, 12)
+        main_h_layout.setSpacing(12)
 
-        # --- LEFT COLUMN: Controls ---
         left_panel = QWidget()
-        left_panel.setFixedWidth(350)
-        main_layout = QVBoxLayout(left_panel)  # This replaces your old main_layout
+        left_panel.setFixedWidth(380)
+        main_layout = QVBoxLayout(left_panel)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(12)
 
         self.video_viewer = ImageViewerWidget()
-
         font = QFont("Noto Sans", 12)
 
-        # Movement grid layout
+        connection_layout = QGridLayout()
+        connection_layout.setContentsMargins(QMargins(0, 0, 0, 0))
+        connection_layout.setHorizontalSpacing(8)
+        connection_layout.setVerticalSpacing(4)
+        connection_layout.setColumnStretch(0, 1)
+        connection_layout.setColumnStretch(1, 3)
+
+        connection_layout.addWidget(self.create_label("Serial Device", font_size=11), 0, 0)
+        self.serial_status_label = self.create_label("Disconnected", alignment=Qt.AlignmentFlag.AlignRight, font_size=10)
+        connection_layout.addWidget(self.serial_status_label, 0, 1, 1, 3)
+        self.serial_combo = QComboBox()
+        connection_layout.addWidget(self.serial_combo, 1, 0, 1, 2)
+        self.serial_refresh_button = self.create_compact_button("Scan", self.refresh_serial_devices)
+        self.serial_connect_button = self.create_compact_button("Open", self.connect_selected_stage)
+        self.serial_disconnect_button = self.create_compact_button("Close", self.disconnect_stage)
+        connection_layout.addWidget(self.serial_refresh_button, 1, 2)
+        connection_layout.addWidget(self.serial_connect_button, 1, 3)
+        connection_layout.addWidget(self.serial_disconnect_button, 1, 4)
+
+        connection_layout.addWidget(self.create_label("Camera", font_size=11), 2, 0)
+        self.camera_status_label = self.create_label("Disconnected", alignment=Qt.AlignmentFlag.AlignRight, font_size=10)
+        connection_layout.addWidget(self.camera_status_label, 2, 1, 1, 4)
+        self.camera_combo = QComboBox()
+        connection_layout.addWidget(self.camera_combo, 3, 0, 1, 2)
+        self.camera_refresh_button = self.create_compact_button("Scan", self.refresh_camera_devices)
+        self.camera_connect_button = self.create_compact_button("Open", self.connect_selected_camera)
+        self.camera_disconnect_button = self.create_compact_button("Close", self.disconnect_camera)
+        connection_layout.addWidget(self.camera_refresh_button, 3, 2)
+        connection_layout.addWidget(self.camera_connect_button, 3, 3)
+        connection_layout.addWidget(self.camera_disconnect_button, 3, 4)
+
+        main_layout.addLayout(connection_layout)
+
+        main_layout.addSpacing(8)
+
         grid = QGridLayout()
         grid.setSpacing(10)
 
-        grid.addWidget(self.create_button("Y-", lambda: self.move_axis(1, -1), font), 0, 1)
-        grid.addWidget(self.create_button("Z+", lambda: self.move_axis(2, +1), font), 0, 3)
-        grid.addWidget(self.create_button("X-", lambda: self.move_axis(0, -1), font), 1, 0)
+        grid.addWidget(self.register_stage_widget(self.create_button("Y-", lambda: self.move_axis(1, -1), font)), 0, 1)
+        grid.addWidget(self.register_stage_widget(self.create_button("Z+", lambda: self.move_axis(2, +1), font)), 0, 3)
+        grid.addWidget(self.register_stage_widget(self.create_button("X-", lambda: self.move_axis(0, -1), font)), 1, 0)
 
         center_label = QLabel("•")
         center_label.setFont(QFont("Arial", 30))
         center_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         grid.addWidget(center_label, 1, 1)
 
-        grid.addWidget(self.create_button("X+", lambda: self.move_axis(0, +1), font), 1, 2)
-        grid.addWidget(self.create_button("Y+", lambda: self.move_axis(1, +1), font), 2, 1)
-        grid.addWidget(self.create_button("Z-", lambda: self.move_axis(2, -1), font), 2, 3)
+        grid.addWidget(self.register_stage_widget(self.create_button("X+", lambda: self.move_axis(0, +1), font)), 1, 2)
+        grid.addWidget(self.register_stage_widget(self.create_button("Y+", lambda: self.move_axis(1, +1), font)), 2, 1)
+        grid.addWidget(self.register_stage_widget(self.create_button("Z-", lambda: self.move_axis(2, -1), font)), 2, 3)
 
         main_layout.addLayout(grid)
 
-        # Step size section
-        main_layout.addSpacing(25)
+        main_layout.addSpacing(10)
         main_layout.addWidget(self.create_label("Step Size [µm]"))
 
         step_layout = QHBoxLayout()
         self.step_button_group = QButtonGroup()
         self.step_button_group.setExclusive(True)
         for i, val in enumerate(self.step_sizes):
-            btn = self.create_button(str(val * 1000), lambda checked=False, idx=i: self.set_step_size(idx), font)
+            btn = self.register_stage_widget(
+                self.create_button(str(val * 1000), lambda checked=False, idx=i: self.set_step_size(idx), font)
+            )
             btn.setCheckable(True)
-            if i == self.step_size_idx: btn.setChecked(True)
+            if i == self.step_size_idx:
+                btn.setChecked(True)
             self.step_button_group.addButton(btn, i)
             step_layout.addWidget(btn)
 
         main_layout.addLayout(step_layout)
 
-        # acceleration
         accel_layout, self.accel_spinbox = self.create_spinbox(
             label_text="Acceleration:",
             min_val=0.01,
@@ -113,101 +211,72 @@ class DeviceControlMainWindow(QMainWindow):
             step=1,
             default=30.00,
             decimals=2,
-            callback=lambda: self.oms.set_max_acceleration(self.accel_spinbox.value(), 5000)
+            callback=self.apply_acceleration_setting,
         )
+        self.register_stage_widget(self.accel_spinbox)
         main_layout.addLayout(accel_layout)
 
-        # Waypoint controls
-        main_layout.addSpacing(25)
+        main_layout.addSpacing(10)
         self.waypoint_info_label = self.create_label("Path Control")
         main_layout.addWidget(self.waypoint_info_label)
 
         wp_layout = QGridLayout()
-        wp_layout.addWidget(self.create_button("Add Waypoint", self.add_waypoint, font), 0, 0)
-        wp_layout.addWidget(self.create_button("Clear Waypoints", self.clear_waypoints, font), 0, 1)
-        wp_layout.addWidget(self.create_button("Run Path", self.run_path, font), 1, 0)
-        wp_layout.addWidget(self.create_button("Save Path", self.save_path, font), 1, 1)
+        wp_layout.addWidget(self.register_stage_widget(self.create_button("Add Waypoint", self.add_waypoint, font)), 0, 0)
+        wp_layout.addWidget(self.register_stage_widget(self.create_button("Clear Waypoints", self.clear_waypoints, font)), 0, 1)
+        wp_layout.addWidget(self.register_stage_widget(self.create_button("Run Path", self.run_path, font)), 1, 0)
+        wp_layout.addWidget(self.register_stage_widget(self.create_button("Save Path", self.save_path, font)), 1, 1)
         main_layout.addLayout(wp_layout)
 
-        # self.waypoint_info_label = self.create_label("", font_size=10)
-        # main_layout.addWidget(self.waypoint_info_label)
         self.update_waypoint_info()
 
-        # GCode controls
-        main_layout.addSpacing(25)
+        main_layout.addSpacing(10)
         main_layout.addWidget(self.create_label("Advanced"))
 
-        #        main_layout.addSpacing(10)
         advanced_frame = QWidget()
         advanced_frame.setObjectName("AdvancedFrame")
 
         layout = QGridLayout(advanced_frame)
         layout.setContentsMargins(QMargins(0, 0, 0, 0))
 
-        # realtime control widget
-        self.realtime_control_widget = RealtimeControllerWidget(self.video_viewer.viewport(), self.oms)
+        self.realtime_control_widget = self.register_stage_widget(
+            RealtimeControllerWidget(self.video_viewer.viewport(), self.oms)
+        )
         layout.addWidget(self.realtime_control_widget, 0, 0, 1, 2)
         layout.addItem(QSpacerItem(0, 10, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed), 1, 0, 1, 2)
         self.realtime_control_widget.stop_control_signal.connect(self.on_stop_realtime_control)
 
-        self.run_gcode_button = self.create_button("Run GCode", self.run_gcode_from_file, font)
+        self.run_gcode_button = self.register_stage_widget(self.create_button("Run GCode", self.run_gcode_from_file, font))
         self.run_gcode_button.setCheckable(True)
         layout.addWidget(self.run_gcode_button, 2, 0, 1, 2)
         layout.addItem(QSpacerItem(0, 10, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed), 3, 0, 1, 2)
 
-        layout.addWidget(self.create_button("3-Point Alignment", self.run_3point_alignment, font), 4, 0)
-        layout.addWidget(self.create_button("Set Origin", lambda: self.set_origin(), font), 4, 1)
-        layout.addWidget(self.create_button("Set Tracking Point", self.set_tracking_point, font), 5, 0)
-        layout.addWidget(self.create_button("Clear", self.clear_draw_buffer, font), 5, 1)
-        layout.addWidget(self.create_button("Load Transform", self.load_transform, font), 6, 0)
-        layout.addWidget(self.create_button("Save Transform", self.save_transform, font), 6, 1)
-        layout.addWidget(self.create_button("Fiber Alignment", self.run_fiber_alignment, font), 7, 0)
-        layout.addWidget(self.create_button("Home", self.home, font), 7, 1)
+        layout.addWidget(self.register_stage_widget(self.create_button("3-Point Alignment", self.run_3point_alignment, font)), 4, 0)
+        layout.addWidget(self.register_stage_widget(self.create_button("Set Origin", self.set_origin, font)), 4, 1)
+        layout.addWidget(self.register_camera_widget(self.create_button("Set Tracking Point", self.set_tracking_point, font)), 5, 0)
+        layout.addWidget(self.register_camera_widget(self.create_button("Clear", self.clear_draw_buffer, font)), 5, 1)
+        layout.addWidget(self.register_stage_widget(self.create_button("Load Transform", self.load_transform, font)), 6, 0)
+        layout.addWidget(self.register_stage_widget(self.create_button("Save Transform", self.save_transform, font)), 6, 1)
+        layout.addWidget(self.register_stage_widget(self.create_button("Fiber Alignment", self.run_fiber_alignment, font)), 7, 0)
+        layout.addWidget(self.register_stage_widget(self.create_button("Home", self.home, font)), 7, 1)
         main_layout.addWidget(advanced_frame)
 
-        # vertical stretch
-        main_layout.addItem(QSpacerItem(0, 10, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
+        main_layout.addItem(QSpacerItem(0, 8, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
 
-        # --- RIGHT COLUMN: Video Display ---
         self.video_viewer.setMinimumWidth(600)
         self.video_viewer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.video_viewer.setStyleSheet("background-color: black; border: 2px solid #444;")
 
-        # Add components to the horizontal layout
-        main_h_layout.addWidget(left_panel)
+        left_panel_scroll = QScrollArea()
+        left_panel_scroll.setWidgetResizable(True)
+        left_panel_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        left_panel_scroll.setWidget(left_panel)
+        left_panel_scroll.setFixedWidth(396)
+        left_panel_scroll.setStyleSheet("QScrollArea { border: none; background-color: transparent; }")
+
+        main_h_layout.addWidget(left_panel_scroll)
         main_h_layout.addWidget(self.video_viewer, stretch=1)
 
         self.set_stylesheet()
-
-    def setup_movement_grid(self):
-        font = QFont("Noto Sans", 12)
-        grid = QGridLayout()
-        grid.addWidget(self.create_button("Y-", lambda: self.move_axis(1, -1), font), 0, 1)
-        grid.addWidget(self.create_button("Z+", lambda: self.move_axis(2, +1), font), 0, 3)
-        grid.addWidget(self.create_button("X-", lambda: self.move_axis(0, -1), font), 1, 0)
-
-        center_label = QLabel("•")
-        center_label.setFont(QFont("Arial", 30))
-        center_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        grid.addWidget(center_label, 1, 1)
-
-        grid.addWidget(self.create_button("X+", lambda: self.move_axis(0, +1), font), 1, 2)
-        grid.addWidget(self.create_button("Y+", lambda: self.move_axis(1, +1), font), 2, 1)
-        grid.addWidget(self.create_button("Z-", lambda: self.move_axis(2, -1), font), 2, 3)
-        self.control_layout.addLayout(grid)
-
-    def setup_step_size_ui(self):
-        self.control_layout.addSpacing(20)
-        self.control_layout.addWidget(self.create_label("Step Size [µm]"))
-        step_layout = QHBoxLayout()
-        self.step_button_group = QButtonGroup(self)
-        for i, val in enumerate(self.step_sizes):
-            btn = self.create_button(str(val * 1000), lambda checked=False, idx=i: self.set_step_size(idx), QFont())
-            btn.setCheckable(True)
-            if i == self.step_size_idx: btn.setChecked(True)
-            self.step_button_group.addButton(btn, i)
-            step_layout.addWidget(btn)
-        self.control_layout.addLayout(step_layout)
 
     @staticmethod
     def create_label(text, alignment=Qt.AlignmentFlag.AlignLeft, font_size=12):
@@ -219,42 +288,19 @@ class DeviceControlMainWindow(QMainWindow):
     @staticmethod
     def create_button(label, slot, font):
         btn = QPushButton(label)
-        # btn.setFont(font)
         btn.setMinimumSize(60, 40)
         btn.setMaximumHeight(40)
         btn.clicked.connect(slot)
-        #        btn.setStyleSheet()
         return btn
 
-    def set_stylesheet(self):
-        self.setStyleSheet("""
-            QWidget {
-                background-color: #2b2b2b; color: white;
-            }
-
-            QPushButton {
-                background-color: #2d5291;
-                color: white;
-                border: 1px solid #202020;
-                border-radius: 3px;
-                padding: 8px;
-            }
-
-            QWidget#AdvancedFrame QPushButton { background-color: #4d5291; }
-            QWidget#AdvancedFrame QPushButton:hover { background-color: #5b72d1; }
-            QWidget#AdvancedFrame QPushButton:pressed { background-color: #32a877; }
-            QWidget#AdvancedFrame QPushButton:checked { background-color: #32a877; }
-
-            QPushButton:hover {
-                background-color: #3b72d1;
-            }
-            QPushButton:checked {
-                background-color: #32a877;
-            }
-            QPushButton:pressed {
-                background-color: #32a877;
-            }
-        """)
+    @staticmethod
+    def create_compact_button(label, slot):
+        btn = QPushButton(label)
+        btn.setMinimumHeight(30)
+        btn.setMaximumHeight(30)
+        btn.setMinimumWidth(54)
+        btn.clicked.connect(slot)
+        return btn
 
     @staticmethod
     def create_spinbox(label_text, min_val, max_val, step, default, decimals, callback):
@@ -272,7 +318,263 @@ class DeviceControlMainWindow(QMainWindow):
 
         return layout, spinbox
 
+    def register_stage_widget(self, widget):
+        self.stage_dependent_widgets.append(widget)
+        return widget
+
+    def register_camera_widget(self, widget):
+        self.camera_dependent_widgets.append(widget)
+        return widget
+
+    def set_stylesheet(self):
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #2b2b2b; color: white;
+            }
+
+            QPushButton, QComboBox, QDoubleSpinBox {
+                background-color: #2d5291;
+                color: white;
+                border: 1px solid #202020;
+                border-radius: 3px;
+                padding: 6px;
+            }
+
+            QComboBox QAbstractItemView {
+                background-color: #1f1f1f;
+                color: white;
+                selection-background-color: #3b72d1;
+            }
+
+            QWidget#AdvancedFrame QPushButton { background-color: #4d5291; }
+            QWidget#AdvancedFrame QPushButton:hover { background-color: #5b72d1; }
+            QWidget#AdvancedFrame QPushButton:pressed { background-color: #32a877; }
+            QWidget#AdvancedFrame QPushButton:checked { background-color: #32a877; }
+
+            QPushButton:hover {
+                background-color: #3b72d1;
+            }
+            QPushButton:checked {
+                background-color: #32a877;
+            }
+            QPushButton:pressed {
+                background-color: #32a877;
+            }
+            QPushButton:disabled, QComboBox:disabled, QDoubleSpinBox:disabled {
+                background-color: #4a4a4a;
+                color: #b0b0b0;
+            }
+        """)
+
+    def show_placeholder_frame(self):
+        placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
+        self.video_viewer.set_image(placeholder, pixel_per_mm=self.pixel_per_mm)
+
+    def clear_visual_state(self):
+        self.last_frame = None
+        self.draw_buffer = None
+        self.image_point_tracker.reset()
+
+    def refresh_serial_devices(self):
+        selected_id = self.serial_combo.currentData().get("id") if self.serial_combo.currentData() else None
+        self.serial_devices = list_serial_devices()
+        self.serial_combo.clear()
+
+        for device in self.serial_devices:
+            self.serial_combo.addItem(device["label"], device)
+
+        if selected_id is not None:
+            for index, device in enumerate(self.serial_devices):
+                if device["id"] == selected_id:
+                    self.serial_combo.setCurrentIndex(index)
+                    break
+
+        self.update_connection_state()
+
+    def refresh_camera_devices(self):
+        selected_id = self.camera_combo.currentData().get("id") if self.camera_combo.currentData() else None
+        self.camera_devices = list_camera_devices()
+        self.camera_combo.clear()
+
+        for device in self.camera_devices:
+            self.camera_combo.addItem(device["label"], device)
+
+        if selected_id is not None:
+            for index, device in enumerate(self.camera_devices):
+                if device["id"] == selected_id:
+                    self.camera_combo.setCurrentIndex(index)
+                    break
+
+        self.update_connection_state()
+
+    def update_connection_state(self):
+        stage_connected = self.oms.is_connected()
+        camera_connected = self.camera is not None and self.camera.is_connected()
+
+        for widget in self.stage_dependent_widgets:
+            widget.setEnabled(stage_connected)
+
+        for widget in self.camera_dependent_widgets:
+            widget.setEnabled(camera_connected)
+
+        self.serial_connect_button.setEnabled(not stage_connected and self.serial_combo.count() > 0)
+        self.serial_disconnect_button.setEnabled(stage_connected)
+        self.camera_connect_button.setEnabled(not camera_connected and self.camera_combo.count() > 0)
+        self.camera_disconnect_button.setEnabled(camera_connected)
+
+        stage_status = self.connected_stage_label if stage_connected else "Disconnected"
+        camera_status = self.connected_camera_label if camera_connected else "Disconnected"
+        self.serial_status_label.setText(stage_status)
+        self.camera_status_label.setText(camera_status)
+
+    def connect_selected_stage(self):
+        if self.oms.is_connected():
+            return
+
+        device = self.serial_combo.currentData()
+        if device is None:
+            QMessageBox.warning(self, "No Serial Device", "No serial device is available.")
+            return
+
+        port = device["port"]
+        if not self.oms.connect(port):
+            QMessageBox.critical(self, "Connection Failed", f"Failed to connect to serial device:\n{port}")
+            self.connected_stage_label = None
+            self.update_connection_state()
+            return
+
+        self.connected_stage_label = device["label"]
+        self.on_stage_connected()
+
+    def on_stage_connected(self):
+        position = self.oms.read_current_position(True)
+        if position[0] is not None:
+            self.current_pos = list(position)
+
+        self.apply_acceleration_setting()
+        self.update_connection_state()
+
+    def disconnect_stage(self):
+        if self.realtime_control_widget.is_running():
+            self.realtime_control_widget.stop_control()
+
+        self.stop_gcode_runner()
+        self.oms.disconnect()
+        self.connected_stage_label = None
+        self.current_pos = [0, 0, 0]
+        self.update_connection_state()
+
+    def create_camera_from_config(self, config):
+        if config["kind"] == "opencv":
+            return OpenCVCamera(camera_index=config["index"], backend=config["backend"])
+
+        if config["kind"] == "basler":
+            return BaslerCamera(device_serial=config["id"])
+
+        raise ValueError(f"Unsupported camera kind: {config['kind']}")
+
+    def connect_selected_camera(self):
+        if self.camera is not None and self.camera.is_connected():
+            return
+
+        config = self.camera_combo.currentData()
+        if config is None:
+            QMessageBox.warning(self, "No Camera", "No camera is available.")
+            return
+
+        try:
+            camera = self.create_camera_from_config(config)
+        except Exception as exc:
+            QMessageBox.critical(self, "Camera Error", str(exc))
+            return
+
+        if camera is None or not camera.is_connected():
+            if camera is not None:
+                camera.close()
+            QMessageBox.critical(self, "Camera Error", f"Failed to connect to camera:\n{config['label']}")
+            return
+
+        self.disconnect_camera(show_placeholder=False)
+        self.camera = camera
+        self.connected_camera_label = config["label"]
+        self.clear_visual_state()
+        self.start_camera_stream()
+        self.update_connection_state()
+
+    def start_camera_stream(self):
+        if self.camera is None or not self.camera.is_connected():
+            return
+
+        self.stop_camera_stream()
+        self.camera_stream_worker = CameraStreamWorker(self.camera, self)
+        self.camera_stream_worker.frame_ready.connect(self.on_frame_received)
+        self.camera_stream_worker.stream_error.connect(self.on_camera_stream_error)
+        self.camera_stream_worker.start()
+
+    def stop_camera_stream(self):
+        if self.camera_stream_worker is not None:
+            self.camera_stream_worker.stop()
+            self.camera_stream_worker = None
+
+    def disconnect_camera(self, show_placeholder=True):
+        self.stop_camera_stream()
+
+        if self.camera is not None:
+            self.camera.close()
+            self.camera = None
+
+        self.connected_camera_label = None
+        self.clear_visual_state()
+        if show_placeholder:
+            self.show_placeholder_frame()
+        self.update_connection_state()
+
+    def on_camera_stream_error(self, message):
+        self.disconnect_camera()
+        QMessageBox.critical(self, "Camera Stream Error", message)
+
+    def on_frame_received(self, frame):
+        if frame is None:
+            return
+
+        if len(frame.shape) == 2 or (len(frame.shape) == 3 and frame.shape[2] == 1):
+            vis_img = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
+        else:
+            vis_img = frame.copy()
+
+        self.update_controller(frame, vis_img, pixel_per_mm=self.pixel_per_mm)
+
+    def stop_gcode_runner(self):
+        if self.gcode_runner is not None:
+            self.gcode_runner.stop()
+            self.gcode_runner = None
+
+        self.run_gcode_button.blockSignals(True)
+        self.run_gcode_button.setChecked(False)
+        self.run_gcode_button.blockSignals(False)
+
+    def apply_acceleration_setting(self):
+        if self.oms.is_connected():
+            self.oms.set_max_acceleration(self.accel_spinbox.value(), 5000)
+
+    def require_stage_connection(self):
+        if self.oms.is_connected():
+            return True
+
+        QMessageBox.warning(self, "Manipulator Disconnected", "Connect a serial device before using this control.")
+        return False
+
+    def require_camera_connection(self):
+        if self.camera is not None and self.camera.is_connected():
+            return True
+
+        QMessageBox.warning(self, "Camera Disconnected", "Connect a camera before using this control.")
+        return False
+
     def run_fiber_alignment(self):
+        if not self.require_stage_connection() or not self.require_camera_connection():
+            return
+
         return
         aligner = OpticalAlignment(self.oms, self.camera)
         pos, _ = aligner.optimize()
@@ -280,14 +582,24 @@ class DeviceControlMainWindow(QMainWindow):
         self.current_pos = pos
 
     def on_stop_realtime_control(self):
-        self.current_pos[:] = self.oms.read_current_position(True)
+        if self.oms.is_connected():
+            position = self.oms.read_current_position(True)
+            if position[0] is not None:
+                self.current_pos[:] = position
 
     def home(self):
+        if not self.require_stage_connection():
+            return
+
         self.oms.home()
-        if self.oms.is_connected():
-            self.current_pos = list(self.oms.read_current_position(True))
+        position = self.oms.read_current_position(True)
+        if position[0] is not None:
+            self.current_pos = list(position)
 
     def move_axis(self, axis, direction):
+        if not self.require_stage_connection():
+            return
+
         flipped = (1, 1, 1)
         d = self.step_sizes[self.step_size_idx]
         self.current_pos[axis] += direction * d * flipped[axis]
@@ -295,54 +607,65 @@ class DeviceControlMainWindow(QMainWindow):
         self.oms.move_to(*self.current_pos, self.feedrates[self.step_size_idx])
 
     def add_waypoint(self):
+        if not self.require_stage_connection():
+            return
+
         if self.realtime_control_widget.is_running():
             self.current_pos[:] = self.realtime_control_widget.get_current_pose()
-            # self.current_pos[:] = self.oms.read_current_position(True)
 
         self.waypoints.append([self.current_pos.copy(), self.feedrates[self.step_size_idx]])
         self.update_waypoint_info()
 
     def run_path(self):
+        if not self.require_stage_connection():
+            return
+
         self.waypoint_idx = 0
 
     def save_path(self):
         if len(self.waypoints) <= 0:
-            QMessageBox.critical(self, "Save Error", f"Waypoint list is empty")
+            QMessageBox.critical(self, "Save Error", "Waypoint list is empty")
             return
 
         path, _ = QFileDialog.getSaveFileName(
-            self, "Save Path to G-code File", "",
-            "G-code Files (*.g *.gcode);;Text Files (*.txt);;All Files (*.*)"
+            self,
+            "Save Path to G-code File",
+            "",
+            "G-code Files (*.g *.gcode);;Text Files (*.txt);;All Files (*.*)",
         )
 
         if not path:
-            return  # user cancelled
+            return
 
         try:
-            with open(path, "w") as f:
-                # Optional header
-                f.write("; Generated by Open Micro Manipulator Controller\n")
-                f.write("G90 ; absolute positioning\n\n")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("; Generated by Open Micro Manipulator Controller\n")
+                handle.write("G90 ; absolute positioning\n\n")
 
                 for waypoint in self.waypoints:
                     (x, y, z), feedrate = waypoint
+                    handle.write(f"G0 X{x:.10f} Y{y:.10f} Z{z:.10f} F{feedrate * 60:.3f}\n")
+                    handle.write("G4 S0.100000\n")
 
-                    f.write(f"G0 X{x:.10f} Y{y:.10f} Z{z:.10f} F{feedrate * 60:.3f}\n")
-                    f.write(f"G4 S{0.1:.6f}\n")
-
-                # Optional footer
-                f.write("\n; End of file\n")
-
-        except Exception as e:
-            QMessageBox.critical(self, "Save Error", f"Failed to save G-code file:\n{e}")
+                handle.write("\n; End of file\n")
+        except Exception as exc:
+            QMessageBox.critical(self, "Save Error", f"Failed to save G-code file:\n{exc}")
 
     def set_origin(self):
-        self.current_pos[:] = self.oms.read_current_position(True)
-        t = self.oms.get_workspace_transform()
-        t[0, 3] += self.current_pos[0]
-        t[1, 3] += self.current_pos[1]
-        t[2, 3] += self.current_pos[2]
-        self.oms.set_workspace_transform(t)
+        if not self.require_stage_connection():
+            return
+
+        position = self.oms.read_current_position(True)
+        if position[0] is None:
+            QMessageBox.critical(self, "Read Error", "Failed to read current stage position.")
+            return
+
+        self.current_pos[:] = position
+        transform = self.oms.get_workspace_transform()
+        transform[0, 3] += self.current_pos[0]
+        transform[1, 3] += self.current_pos[1]
+        transform[2, 3] += self.current_pos[2]
+        self.oms.set_workspace_transform(transform)
         self.current_pos = [0, 0, 0]
         self.oms.move_to(0, 0, 0, self.feedrates[self.step_size_idx])
 
@@ -357,9 +680,9 @@ class DeviceControlMainWindow(QMainWindow):
         self.step_size_idx = index
 
     def update_controller(self, frame, vis_image, pixel_per_mm):
-        if self.waypoint_idx <= len(self.waypoints) and len(self.waypoints) > 0:
-            self.current_pos[:], f = self.waypoints[self.waypoint_idx % len(self.waypoints)]
-            self.oms.move_to(*self.current_pos, f)
+        if self.oms.is_connected() and self.waypoint_idx <= len(self.waypoints) and len(self.waypoints) > 0:
+            self.current_pos[:], feedrate = self.waypoints[self.waypoint_idx % len(self.waypoints)]
+            self.oms.move_to(*self.current_pos, feedrate)
             self.oms.dwell(0.1, False)
             self.waypoint_idx += 1
         else:
@@ -367,29 +690,31 @@ class DeviceControlMainWindow(QMainWindow):
 
         px0, py0 = self.image_point_tracker.prev_pos
         px, py = self.image_point_tracker.update(frame)
-        cv2.circle(vis_image, (px, py), 4, (0, 0, 255), thickness=-1)
+        cv2.circle(vis_image, (px, py), 4, (255, 0, 0), thickness=-1)
 
         if self.draw_buffer is None:
-            self.draw_buffer = np.zeros_like(frame)
+            self.draw_buffer = np.zeros_like(vis_image)
         else:
-            # cv2.circle(self.draw_buffer, (px, py), radius=0, color=(255,255,255), thickness=1)
             cv2.line(self.draw_buffer, (px0, py0), (px, py), color=(255, 255, 255), thickness=1)
             mask = self.draw_buffer[:, :, 0] != 0
             vis_image[mask, :] = np.array((0, 255, 100), dtype=np.uint8)
-            # cv2.subtract(vis_image, self.draw_buffer, vis_image)
 
         self.video_viewer.set_image(vis_image, pixel_per_mm=pixel_per_mm)
-
         self.last_frame = frame
         return vis_image
 
     def set_tracking_point(self):
+        if not self.require_camera_connection():
+            return
+
         if self.last_frame is None:
             return
 
-        self.image_point_tracker.set_track_point(self.last_frame,
-                                                 self.last_frame.shape[1] // 2,
-                                                 self.last_frame.shape[0] // 2)
+        self.image_point_tracker.set_track_point(
+            self.last_frame,
+            self.last_frame.shape[1] // 2,
+            self.last_frame.shape[0] // 2,
+        )
 
     def clear_draw_buffer(self):
         if self.draw_buffer is not None:
@@ -398,15 +723,33 @@ class DeviceControlMainWindow(QMainWindow):
 
     def run_gcode_from_file(self, checked):
         if checked:
-            path, _ = QFileDialog.getOpenFileName(self, "Open G-code File",
-                                                  "", "G-code Files (*.g *.gcode);;Text Files (*.txt);;All Files (*.*)")
+            if not self.require_stage_connection():
+                self.run_gcode_button.blockSignals(True)
+                self.run_gcode_button.setChecked(False)
+                self.run_gcode_button.blockSignals(False)
+                return
+
+            path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Open G-code File",
+                "",
+                "G-code Files (*.g *.gcode);;Text Files (*.txt);;All Files (*.*)",
+            )
 
             if not path:
+                self.run_gcode_button.blockSignals(True)
+                self.run_gcode_button.setChecked(False)
+                self.run_gcode_button.blockSignals(False)
                 return
+
             try:
-                gcode = open(path, 'r').read()
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to open file:\n{e}")
+                with open(path, "r", encoding="utf-8") as handle:
+                    gcode = handle.read()
+            except Exception as exc:
+                QMessageBox.critical(self, "Error", f"Failed to open file:\n{exc}")
+                self.run_gcode_button.blockSignals(True)
+                self.run_gcode_button.setChecked(False)
+                self.run_gcode_button.blockSignals(False)
                 return
 
             self.gcode_runner = GCodeRunner(gcode, self.oms, max_feedrate=0.5)
@@ -418,15 +761,16 @@ class DeviceControlMainWindow(QMainWindow):
                 self.run_gcode_button.blockSignals(False)
 
             def on_iteration_finished():
-                # self.draw_buffer = None
                 pass
 
-            # start gcode runner here
             self.gcode_runner.run(on_finished, on_iteration_finished, loop_playback=False)
         elif self.gcode_runner is not None:
             self.gcode_runner.stop()
 
     def run_3point_alignment(self):
+        if not self.require_stage_connection():
+            return
+
         if len(self.waypoints) != 3:
             QMessageBox.critical(self, "Error", "Exactly 3 Waypoints need to be recorded for this function")
             return
@@ -437,7 +781,6 @@ class DeviceControlMainWindow(QMainWindow):
         p1 = np.array(self.waypoints[1][0])
         p2 = np.array(self.waypoints[2][0])
 
-        # Step 1: Compute Z-axis (normal to the plane)
         v1 = p1 - p0
         v2 = p2 - p0
         z_axis = np.cross(v1, v2)
@@ -445,47 +788,68 @@ class DeviceControlMainWindow(QMainWindow):
             z_axis = -z_axis
         z_axis /= np.linalg.norm(z_axis)
 
-        # Step 2: Project global X-axis onto the plane to get the local X-axis
         global_x = np.array([1.0, 0.0, 0.0])
         x_proj = global_x - np.dot(global_x, z_axis) * z_axis
         x_axis = x_proj / np.linalg.norm(x_proj)
 
-        # Step 3: Compute Y-axis to complete right-handed system
         y_axis = np.cross(z_axis, x_axis)
         y_axis /= np.linalg.norm(y_axis)
 
-        # Step 4: Build 4x4 transform matrix (from local plane frame to base frame)
-        T = np.eye(4)
-        T[:3, 0] = x_axis
-        T[:3, 1] = y_axis
-        T[:3, 2] = z_axis
-        T[:3, 3] = p0
+        transform = np.eye(4)
+        transform[:3, 0] = x_axis
+        transform[:3, 1] = y_axis
+        transform[:3, 2] = z_axis
+        transform[:3, 3] = p0
 
-        # Step 5: set coordinate system
-        self.oms.set_workspace_transform(T @ old_workspace_transform)
+        self.oms.set_workspace_transform(transform @ old_workspace_transform)
         QMessageBox.information(self, "Alignment Complete", "3-point alignment complete.")
 
         self.oms.move_to(0, 0, 0, self.feedrates[self.step_size_idx])
         self.current_pos = [0, 0, 0]
 
-        # self.save_transform(ask=False)
-
     def load_transform(self):
-        data = json.load(open("transform.json"))
-        T = np.array(data)
-        self.oms.set_workspace_transform(T)
+        if not self.require_stage_connection():
+            return
+
+        try:
+            with open("transform.json", "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except Exception as exc:
+            QMessageBox.critical(self, "Load Error", f"Failed to load transform:\n{exc}")
+            return
+
+        transform = np.array(data)
+        self.oms.set_workspace_transform(transform)
         self.oms.move_to(0, 0, 0, self.feedrates[self.step_size_idx])
         self.current_pos = [0, 0, 0]
 
     def save_transform(self, pressed=True, ask=True):
         if ask:
-            confirmed = QMessageBox.question(None, "Save Transform", "Are you sure?",
-                                             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                             QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes
-            if not confirmed: return
+            confirmed = QMessageBox.question(
+                None,
+                "Save Transform",
+                "Are you sure?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            ) == QMessageBox.StandardButton.Yes
+            if not confirmed:
+                return
 
-        T = self.oms.get_workspace_transform()
-        json.dump(T.tolist(), open("transform.json", "w"))
+        try:
+            transform = self.oms.get_workspace_transform()
+            with open("transform.json", "w", encoding="utf-8") as handle:
+                json.dump(transform.tolist(), handle)
+        except Exception as exc:
+            QMessageBox.critical(self, "Save Error", f"Failed to save transform:\n{exc}")
+
+    def closeEvent(self, event: QCloseEvent):
+        if self.realtime_control_widget.is_running():
+            self.realtime_control_widget.stop_control()
+
+        self.stop_gcode_runner()
+        self.disconnect_camera()
+        self.disconnect_stage()
+        super().closeEvent(event)
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_A:

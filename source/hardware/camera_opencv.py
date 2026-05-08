@@ -11,15 +11,28 @@ import numpy as np
 from hardware.abstract_camera import AbstractCamera
 
 class OpenCVCamera(AbstractCamera):
-    def __init__(self, camera_index=0):
-        self.cap = cv2.VideoCapture(camera_index)
+    def __init__(self, camera_index=0, backend=cv2.CAP_ANY):
+        self.camera_index = int(camera_index)
+        self.backend = backend
+        self.cap = cv2.VideoCapture(self.camera_index, self.backend)
         self.grabbing = False
 
         if not self.cap.isOpened():
-            print(f"Failed to open OpenCV camera at index {camera_index}")
+            print(f"Failed to open OpenCV camera at index {self.camera_index}")
+            self.cap.release()
             self.cap = None
         else:
-            print(f"Using OpenCV camera at index {camera_index}")
+            print(f"Using OpenCV camera at index {self.camera_index}")
+
+    @staticmethod
+    def _convert_frame(frame):
+        if frame is None:
+            return None
+
+        if len(frame.shape) == 3 and frame.shape[2] == 3:
+            return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        return frame
 
     def is_connected(self):
         return self.cap is not None
@@ -50,7 +63,7 @@ class OpenCVCamera(AbstractCamera):
         if not self.cap:
             return None
         ret, frame = self.cap.read()
-        return frame if ret else None
+        return self._convert_frame(frame) if ret else None
 
     def grab_loop(self, callback, timeout_ms=5000):
         if not self.cap:
@@ -60,12 +73,9 @@ class OpenCVCamera(AbstractCamera):
         self.start_grabbing(single_grab=False)
         try:
             while self.grabbing:
-                ret, new_frame = self.cap.read()
-                if not ret:
-                    pass
-                    #print("Frame grab failed")
-                elif new_frame.shape[2] == 3:
-                    frame = cv2.cvtColor(new_frame, cv2.COLOR_BGR2RGB)
+                new_frame = self.grab_one(timeout_ms)
+                if new_frame is not None:
+                    frame = new_frame
 
                 try:
                     if callback(frame) is False:
@@ -75,6 +85,11 @@ class OpenCVCamera(AbstractCamera):
         finally:
             self.stop_grabbing()
 
-    def __del__(self):
+    def close(self):
+        self.stop_grabbing()
         if self.cap:
             self.cap.release()
+            self.cap = None
+
+    def __del__(self):
+        self.close()

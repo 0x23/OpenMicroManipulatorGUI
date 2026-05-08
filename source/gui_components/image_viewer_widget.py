@@ -6,9 +6,9 @@
 # --------------------------------------------------------------------------------------
 
 import math
-from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
-from PySide6.QtGui import QPixmap, QImage, QPainter, QMouseEvent, QPen, QColor, QKeyEvent, QBrush
-from PySide6.QtCore import Qt, QCoreApplication
+from PySide6.QtCore import QCoreApplication, QRectF, Qt
+from PySide6.QtGui import QBrush, QColor, QImage, QKeyEvent, QMouseEvent, QPainter, QPen, QPixmap
+from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsScene, QGraphicsView
 
 
 class ImageViewerWidget(QGraphicsView):
@@ -178,11 +178,14 @@ class ImageViewerWidget(QGraphicsView):
         self.viewport().update()
 
     def fit_view(self):
-        rect = self.transform().mapRect(self._scene.sceneRect())
-        view_rect = self.viewport().rect()
-        if rect.width() > 0 and rect.height() > 0:
-           zf = min(view_rect.width() / rect.width(), view_rect.width() / rect.height())
-           self.scale(zf, zf)
+        rect = QRectF(self._pixmap_item.pixmap().rect())
+        if rect.isNull():
+            return
+
+        self.resetTransform()
+        self.setSceneRect(rect)
+        self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+        self.viewport().update()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.RightButton:

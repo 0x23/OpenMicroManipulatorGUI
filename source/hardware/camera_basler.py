@@ -5,29 +5,82 @@
 # Author:  M. S. (diffraction limited)
 # --------------------------------------------------------------------------------------
 
-from pypylon import pylon
 from hardware.abstract_camera import AbstractCamera
 import numpy as np
 
+try:
+    from pypylon import pylon
+except ImportError:
+    pylon = None
+
 class BaslerCamera(AbstractCamera):
-    def __init__(self):
+    def __init__(self, device_serial=None):
         self.camera = None
         self.connected = False
+        self.grabbing = False
+        self.device_serial = device_serial
+        self.converter = None
+
+        if pylon is None:
+            print("Basler camera support unavailable: pypylon is not installed")
+            return
+
         try:
-            self.camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
+            factory = pylon.TlFactory.GetInstance()
+            device = None
+            if self.device_serial:
+                for candidate in factory.EnumerateDevices():
+                    if candidate.GetSerialNumber() == self.device_serial:
+                        device = factory.CreateDevice(candidate)
+                        break
+            else:
+                device = factory.CreateFirstDevice()
+
+            if device is None:
+                raise RuntimeError(f"Basler camera with serial '{self.device_serial}' not found")
+
+            self.camera = pylon.InstantCamera(device)
             self.camera.Open()
             self.set_exposure_time(16000.0)
             self.camera.Gain.SetValue(0.0)
-            print("Using camera:", self.camera.GetDeviceInfo().GetModelName())
+            info = self.camera.GetDeviceInfo()
+            print("Using camera:", info.GetModelName(), info.GetSerialNumber())
 
             self.converter = pylon.ImageFormatConverter()
-            self.converter.OutputPixelFormat = pylon.PixelType_BGR8packed
+            self.converter.OutputPixelFormat = pylon.PixelType_RGB8packed
             self.converter.OutputBitAlignment = pylon.OutputBitAlignment_MsbAligned
 
-            self.grabbing = False
             self.connected = True
         except Exception as e:
             print(f"Camera initialization failed: {e}")
+            self.close()
+
+    @staticmethod
+    def is_available():
+        return pylon is not None
+
+    @staticmethod
+    def enumerate_devices():
+        if pylon is None:
+            return []
+
+        devices = []
+        try:
+            for candidate in pylon.TlFactory.GetInstance().EnumerateDevices():
+                serial_number = candidate.GetSerialNumber()
+                model_name = candidate.GetModelName() or "Basler Camera"
+                display_name = f"Basler {model_name}"
+                if serial_number:
+                    display_name = f"{display_name} ({serial_number})"
+                devices.append({
+                    "kind": "basler",
+                    "id": serial_number,
+                    "label": display_name,
+                })
+        except Exception as e:
+            print(f"Basler enumeration failed: {e}")
+
+        return devices
 
     def is_connected(self):
         return self.connected
@@ -141,3 +194,17 @@ class BaslerCamera(AbstractCamera):
             print(f"Grab loop error: {e}")
         finally:
             self.stop_grabbing()
+
+    def close(self):
+        self.stop_grabbing()
+
+        if self.camera:
+            try:
+                if self.camera.IsOpen():
+                    self.camera.Close()
+            except Exception:
+                pass
+
+        self.camera = None
+        self.converter = None
+        self.connected = False

@@ -15,58 +15,16 @@ os.environ['GDK_DPI_SCALE'] = '1'
 
 from PySide6.QtWidgets import QApplication
 
-import cv2
 from hardware.open_micro_stage_api import OpenMicroStageInterface
 from mainwindow import DeviceControlMainWindow
 
-from hardware.camera_opencv import OpenCVCamera
-from hardware.camera_basler import BaslerCamera
-
 
 def main():
-
-    # --- change configuration here ----------------------------------------------
-
-    # create interface and connect
     oms = OpenMicroStageInterface(show_communication=False, show_log_messages=True)
-    oms.connect('/dev/ttyACM0')       # on linux
-    # oms.connect('COM1')             # on windows
-
-    # Setup camera
-    camera = OpenCVCamera(camera_index=4, resolution=(1920*2, 1080*2))
-   # camera.set_exposure_time(200)
-   # camera = BaslerCamera()
-    # camera.set_exposure_time(16000//32)
-    #camera.set_exposure_time(1000), camera.set_gain(1.0)
-
-    # ------------------------------------------------------------------------
-
-    # create the Qt app and GUI
     app = QApplication()
-    gui = DeviceControlMainWindow(oms, camera)
+    gui = DeviceControlMainWindow(oms)
     gui.show()
-
-    def process_frame(frame):
-        #frame = cv2.flip(frame, 1)
-
-        # Convert grayscale to BGR if needed
-        if len(frame.shape) == 2 or frame.shape[2] == 1:
-            vis_img = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-        else:
-            vis_img = frame.copy()
-
-        gui.update_controller(frame, vis_img, pixel_per_mm=2000.0)
-
-        app.processEvents()
-        a = gui.isVisible()
-        return a
-
-    if camera.is_connected():
-        # Run the camera loop (which also runs qt event loop)
-        camera.grab_loop(callback=process_frame)
-    else:
-        # Start the Qt event loop
-        app.exec()
+    app.exec()
 
 if __name__ == "__main__":
     main()

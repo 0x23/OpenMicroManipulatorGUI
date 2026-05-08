@@ -10,6 +10,11 @@ import numpy as np
 
 class AbstractCamera(ABC):
     @abstractmethod
+    def close(self):
+        """Release all camera resources."""
+        pass
+
+    @abstractmethod
     def get_exposure_time_range(self) -> tuple[float]:
         """Set the camera's exposure time."""
         pass

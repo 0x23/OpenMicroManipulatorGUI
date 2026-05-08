@@ -20,8 +20,13 @@ class AbstractCamera(ABC):
         pass
 
     @abstractmethod
-    def set_gain(self, gain_db: float):
+    def set_gain(self, gain: float):
         """Set the camera's gain in db"""
+        pass
+
+    @abstractmethod
+    def set_white_balance(self, wb: float):
+        """Set the camera's white balance if supported"""
         pass
 
     @abstractmethod

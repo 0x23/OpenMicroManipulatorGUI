@@ -48,9 +48,13 @@ class BaslerCamera(AbstractCamera):
         if self.camera:
             self.camera.ExposureTime.SetValue(exposure_time_us)
 
-    def set_gain(self, gain_db: float):
+    def set_gain(self, gain: float):
         if self.camera:
-            self.camera.Gain.SetValue(gain_db)
+            self.camera.Gain.SetValue(gain)
+
+    def set_white_balance(self, wb: float):
+        """Set the camera's white balance if supported"""
+        pass
 
     def start_grabbing(self, single_grab=True):
         if not self.camera or self.grabbing:

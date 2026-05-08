@@ -21,12 +21,9 @@ echo "$PYTHON detected:"
 "$PYTHON" --version
 echo
 
-# Loop through all subdirectories that contain a requirements.txt
-dir="./"
-if [ -f "$dir/requirements.txt" ]; then
+# Check if requirements.txt exists in the current directory
+if [ -f "requirements.txt" ]; then
     echo
-
-    pushd "$dir" > /dev/null
 
     # Create virtual environment if it doesn't exist
     if [ ! -d ".venv" ]; then
@@ -40,9 +37,7 @@ if [ -f "$dir/requirements.txt" ]; then
     # Install dependencies
     ".venv/bin/python" -m pip install -r "requirements.txt"
 
-    popd > /dev/null
-
-    echo "Finished $dir"
+    echo "Finished setting up virtual environment"
 fi
 
 echo

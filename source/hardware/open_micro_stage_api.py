@@ -427,12 +427,12 @@ class OpenMicroStageInterface:
         res, msg = self.serial.send_command(cmd)
         return res
 
-    def enable_motors(self, enable):
+    def enable_motors(self, enable: bool):
         cmd = f"M17" if enable else "M18"
         res, msg = self.serial.send_command(cmd, timeout=5)
         return res
 
-    def set_pose(self, x, y, z):
+    def set_pose(self, x: float, y: float, z: float):
         # Convert to homogeneous vector
         transformed = self.workspace_transform @ np.array([x, y, z, 1.0])
         x_t, y_t, z_t = transformed[:3] / transformed[3]
@@ -440,6 +440,17 @@ class OpenMicroStageInterface:
         cmd = f"G24 X{x_t:.6f} Y{y_t:.6f} Z{z_t:.6f}" # TODO: A, B ,C
         res, msg = self.serial.send_command(cmd)
         return res
+        
+    def set_tool_output(self, tool_idx: int, output_value: float, immediate: bool=True):
+        # sets the output value for the specified tool
+        cmd = f"M3 T{tool_idx} S{output_value}"
+        res, msg = self.serial.send_command(cmd)
+        
+        # send dwell command to update tool value immediately
+        if immediate:
+            self.serial.send_command("G4 S0.001")
+            
+        return res    
 
     def send_command(self, cmd: str, timeout_s: float=5):
         res, msg = self.serial.send_command(cmd, timeout_s)

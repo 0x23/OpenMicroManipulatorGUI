@@ -23,31 +23,24 @@ echo %PYTHON_VERSION% detected:
 %PYTHON_VERSION% --version
 echo.
 
-REM Loop through all folders with requirements.txt
-for /f "delims=" %%D in ('dir /b /ad') do (
-    if exist "%%D\requirements.txt" (
-        echo.
-        echo --- Setting up %%D ---
+REM Check if requirements.txt exists in the current directory
+if exist "requirements.txt" (
+    echo.
+    echo --- Setting up virtual environment in current directory ---
 
-        REM Change to the folder with requirements.txt
-        pushd "%%D"
+    REM Create virtual environment if it doesn't exist
+    if not exist ".\.venv" (
+        echo Creating virtual environment with %PYTHON_VERSION%
+        %PYTHON_VERSION% -m venv ".\.venv"
+    )
 
-        REM Create virtual environment if it doesn't exist
-        if not exist ".\.venv" (
-            echo Creating virtual environment with %PYTHON_VERSION%
-            %PYTHON_VERSION% -m venv ".\.venv"
-        )
+    REM Upgrade pip
+    call ".\.venv\Scripts\python.exe" -m pip install --upgrade pip
 
-        REM Upgrade pip
-        call ".\.venv\Scripts\python.exe" -m pip install --upgrade pip
+    REM Install dependencies
+    call ".\.venv\Scripts\python.exe" -m pip install -r "requirements.txt"
 
-        REM Install dependencies
-        call ".\.venv\Scripts\python.exe" -m pip install -r "requirements.txt"
-
-        REM Return to the original directory
-        popd
-
-        echo Finished %%D
+    echo Finished setting up virtual environment
     )
 )
 

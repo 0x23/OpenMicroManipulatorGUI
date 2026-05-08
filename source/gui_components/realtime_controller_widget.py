@@ -119,7 +119,7 @@ class RealtimeControllerWidget(QWidget):
         self.mouse_control_active = False
         self.lowpass_strength = 0.9
         self.update_frequency = 120 # Hz
-        self.motion_gain = np.array( [-0.001, 0.001, -0.02], dtype=np.float32)
+        self.motion_gain = np.array( [-0.001, 0.001, -0.005], dtype=np.float32)
         self.motion_limits = np.array( [1.0, 1.0, 1.0], dtype=np.float32)
 
         self.update_thread = None

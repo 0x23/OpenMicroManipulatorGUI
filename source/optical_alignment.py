@@ -19,7 +19,7 @@ class OpticalAlignment:
         self.oms = oms
         self.feed_rate = 50
         self.camera = camera
-        self.search_box_size=np.array([1,1,1])
+        self.search_box_size=np.array([0.1,0.1,0.1])
         self.eval_count = 0
         self.best_eval = 0
         self.best_position = None
@@ -37,8 +37,8 @@ class OpticalAlignment:
        # print(f"brightness at [{parameter[0]} {parameter[1]} {parameter[2]}]: {cost:.3f}")
         return cost  # We negate because we want to maximize brightness
 
-    def optimize(self, search_box_size=(0.01, 0.01, 0.01), n_calls=100):
-        self.oms.set_max_acceleration(100, 5000)
+    def optimize(self, search_box_size=(0.003, 0.003, 0.01), n_calls=100):
+        self.oms.set_max_acceleration(10, 500)
         self.search_box_size = search_box_size
         self.camera.start_grabbing(single_grab=True)
 
@@ -87,6 +87,7 @@ class OpticalAlignment:
         return final_pos, final_brightness
 
     def optimize1(self, search_box_size=(0.03, 0.2, 0.03)):
+        return
         self.oms.set_max_acceleration(1000, 5000)
         self.camera.start_grabbing(single_grab=True)
 

@@ -40,7 +40,7 @@ class GCodeRunner:
             return True
 
         def parse_gcode_line(line):
-            matches = re.findall(r'([XYZF])([-+]?[0-9]*\.?[0-9]+)', line.upper())
+            matches = re.findall(r'([XYZFS])([-+]?[0-9]*\.?[0-9]+)', line.upper())
             return {k: float(v) for k, v in matches}
 
         while self.current_line_idx < len(self.lines):
@@ -56,6 +56,12 @@ class GCodeRunner:
                 args = parse_gcode_line(line)
                 wait_time = args.get('S', 0.1)
                 self.oms.dwell(wait_time, blocking=True, timeout=5)
+
+            if line.startswith('M3'):
+                args = parse_gcode_line(line)
+                tool_nr = int(args.get('T', 0))
+                tool_value = args.get('S', 0.0)
+                self.oms.set_tool_output (tool_nr, tool_value, False)
 
             if line.startswith(('G0', 'G1')):
                 args = parse_gcode_line(line)

@@ -33,10 +33,11 @@ def main():
     # oms.connect('COM1')             # on windows
 
     # Setup camera
-    # camera = BaslerCamera()
+    camera = OpenCVCamera(camera_index=4, resolution=(1920*2, 1080*2))
+   # camera.set_exposure_time(200)
+   # camera = BaslerCamera()
     # camera.set_exposure_time(16000//32)
-    # camera.set_gain(6.0)
-    camera = OpenCVCamera(camera_index=0)
+    #camera.set_exposure_time(1000), camera.set_gain(1.0)
 
     # ------------------------------------------------------------------------
 

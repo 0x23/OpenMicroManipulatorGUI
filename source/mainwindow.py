@@ -21,26 +21,22 @@ from hardware.device_discovery import list_camera_devices, list_serial_devices
 from hardware.open_micro_stage_api import OpenMicroStageInterface
 from image_processing.image_point_tracker import ImagePointTracker
 from optical_alignment import OpticalAlignment
-from PySide6.QtCore import QMargins, Qt, QThread, Signal
-from PySide6.QtGui import QCloseEvent, QFont
+from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QCloseEvent
+from PySide6.QtUiTools import loadUiType
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
-    QGridLayout,
-    QHBoxLayout,
-    QLabel,
     QMainWindow,
     QMessageBox,
     QPushButton,
     QScrollArea,
-    QSizePolicy,
-    QSpacerItem,
-    QTabWidget,
-    QVBoxLayout,
-    QWidget,
 )
+
+_ui_path = os.path.join(os.path.dirname(__file__), "mainwindow.ui")
+Ui_DeviceControlMainWindow, _ = loadUiType(_ui_path)
 
 
 class CameraStreamWorker(QThread):
@@ -75,7 +71,7 @@ class CameraStreamWorker(QThread):
                 self.stream_error.emit(str(exc))
 
 
-class DeviceControlMainWindow(QMainWindow):
+class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
     def __init__(self, oms: OpenMicroStageInterface, camera=None):
         super().__init__()
 
@@ -119,333 +115,71 @@ class DeviceControlMainWindow(QMainWindow):
             self.on_stage_connected()
 
     def init_ui(self):
-        self.setWindowTitle("Open Micro-Manipulator Control")
-        self.setStyleSheet("background-color: #2b2b2b; color: white;")
-        self.setMinimumSize(1280, 820)
+        self.setupUi(self)
 
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
+        self.video_viewer.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        main_h_layout = QHBoxLayout(central_widget)
-        main_h_layout.setContentsMargins(12, 12, 12, 12)
-        main_h_layout.setSpacing(12)
+        # Connect signals – connection buttons
+        self.serial_refresh_button.clicked.connect(self.refresh_serial_devices)
+        self.serial_connect_button.clicked.connect(self.toggle_stage_connection)
+        self.camera_refresh_button.clicked.connect(self.refresh_camera_devices)
+        self.camera_connect_button.clicked.connect(self.toggle_camera_connection)
 
-        left_panel = QWidget()
-        left_panel.setFixedWidth(380)
-        main_layout = QVBoxLayout(left_panel)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(12)
+        # Connect signals – movement buttons
+        for name, axis, direction in [
+            ("btn_y_minus", 1, -1), ("btn_z_plus", 2, +1),
+            ("btn_x_minus", 0, -1), ("btn_x_plus", 0, +1),
+            ("btn_y_plus", 1, +1), ("btn_z_minus", 2, -1),
+        ]:
+            btn = getattr(self, name)
+            btn.clicked.connect(lambda checked=False, a=axis, d=direction: self.move_axis(a, d))
 
-        self.video_viewer = ImageViewerWidget()
-        font = QFont("Noto Sans", 12)
+        # Spinbox signals
+        self.accel_spinbox.editingFinished.connect(self.apply_acceleration_setting)
+        self.tool_spinbox.valueChanged.connect(self.apply_tool_setting)
+        self.exposure_spinbox.valueChanged.connect(self.apply_camera_settings)
+        self.gain_spinbox.valueChanged.connect(self.apply_camera_settings)
+        self.white_balance_spinbox.valueChanged.connect(self.apply_camera_settings)
 
-        connection_layout = QGridLayout()
-        connection_layout.setContentsMargins(QMargins(0, 0, 0, 0))
-        connection_layout.setHorizontalSpacing(8)
-        connection_layout.setVerticalSpacing(4)
-        connection_layout.setColumnStretch(0, 1)
-        connection_layout.setColumnStretch(1, 3)
-
-        connection_layout.addWidget(self.create_label("Serial Device", font_size=11), 0, 0)
-        self.serial_status_label = self.create_label(
-            "Disconnected",
-            alignment=Qt.AlignmentFlag.AlignRight,
-            font_size=10,
-        )
-        connection_layout.addWidget(self.serial_status_label, 0, 1, 1, 3)
-        self.serial_combo = QComboBox()
-        connection_layout.addWidget(self.serial_combo, 1, 0, 1, 2)
-        self.serial_refresh_button = self.create_compact_button("Scan", self.refresh_serial_devices)
-        self.serial_connect_button = self.create_compact_button("Open", self.connect_selected_stage)
-        self.serial_disconnect_button = self.create_compact_button("Close", self.disconnect_stage)
-        connection_layout.addWidget(self.serial_refresh_button, 1, 2)
-        connection_layout.addWidget(self.serial_connect_button, 1, 3)
-        connection_layout.addWidget(self.serial_disconnect_button, 1, 4)
-
-        connection_layout.addWidget(self.create_label("Camera", font_size=11), 2, 0)
-        self.camera_status_label = self.create_label(
-            "Disconnected",
-            alignment=Qt.AlignmentFlag.AlignRight,
-            font_size=10,
-        )
-        connection_layout.addWidget(self.camera_status_label, 2, 1, 1, 4)
-        self.camera_combo = QComboBox()
-        connection_layout.addWidget(self.camera_combo, 3, 0, 1, 2)
-        self.camera_refresh_button = self.create_compact_button("Scan", self.refresh_camera_devices)
-        self.camera_connect_button = self.create_compact_button("Open", self.connect_selected_camera)
-        self.camera_disconnect_button = self.create_compact_button("Close", self.disconnect_camera)
-        connection_layout.addWidget(self.camera_refresh_button, 3, 2)
-        connection_layout.addWidget(self.camera_connect_button, 3, 3)
-        connection_layout.addWidget(self.camera_disconnect_button, 3, 4)
-
-        main_layout.addLayout(connection_layout)
-        main_layout.addSpacing(8)
-
-        grid = QGridLayout()
-        grid.setSpacing(10)
-        grid.addWidget(self.register_stage_widget(self.create_button("Y-", lambda: self.move_axis(1, -1), font)), 0, 1)
-        grid.addWidget(self.register_stage_widget(self.create_button("Z+", lambda: self.move_axis(2, +1), font)), 0, 3)
-        grid.addWidget(self.register_stage_widget(self.create_button("X-", lambda: self.move_axis(0, -1), font)), 1, 0)
-
-        center_label = QLabel("•")
-        center_label.setFont(QFont("Arial", 30))
-        center_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        grid.addWidget(center_label, 1, 1)
-
-        grid.addWidget(self.register_stage_widget(self.create_button("X+", lambda: self.move_axis(0, +1), font)), 1, 2)
-        grid.addWidget(self.register_stage_widget(self.create_button("Y+", lambda: self.move_axis(1, +1), font)), 2, 1)
-        grid.addWidget(self.register_stage_widget(self.create_button("Z-", lambda: self.move_axis(2, -1), font)), 2, 3)
-        main_layout.addLayout(grid)
-
-        main_layout.addSpacing(16)
-        main_layout.addWidget(self.create_label("Step Size [µm]"))
-
-        step_layout = QHBoxLayout()
+        # Step size buttons
         self.step_button_group = QButtonGroup()
         self.step_button_group.setExclusive(True)
-
-        for i, val in enumerate(self.step_sizes):
-            btn = self.register_stage_widget(
-                self.create_button(str(val * 1000), lambda checked=False, idx=i: self.set_step_size(idx), font)
-            )
-            btn.setCheckable(True)
-            if i == self.step_size_idx:
-                btn.setChecked(True)
+        for i in range(len(self.step_sizes)):
+            btn = getattr(self, f"step_btn_{i}")
+            btn.clicked.connect(lambda checked=False, idx=i: self.set_step_size(idx))
             self.step_button_group.addButton(btn, i)
-            step_layout.addWidget(btn)
 
-        main_layout.addLayout(step_layout)
-
-        accel_layout, self.accel_spinbox = self.create_spinbox(
-            label_text="Acceleration:",
-            min_val=0.01,
-            max_val=1000.0,
-            step=1,
-            default=50.0,
-            decimals=2,
-            update_immediately=False,
-            callback=self.apply_acceleration_setting,
-        )
-        self.register_stage_widget(self.accel_spinbox)
-        main_layout.addLayout(accel_layout)
-
-        tool_layout, self.tool_spinbox = self.create_spinbox(
-            label_text="Tool 1:",
-            min_val=0.0,
-            max_val=1.0,
-            step=0.1,
-            default=0.0,
-            decimals=2,
-            update_immediately=True,
-            callback=self.apply_tool_setting,
-        )
-        self.register_stage_widget(self.tool_spinbox)
-        main_layout.addLayout(tool_layout)
-
-        main_layout.addSpacing(16)
-        self.realtime_control_widget = self.register_stage_widget(
-            RealtimeControllerWidget(self.video_viewer.viewport(), self.oms)
-        )
-        main_layout.addWidget(self.realtime_control_widget)
+        self.realtime_control_widget.setup(self.video_viewer.viewport(), self.oms)
         self.realtime_control_widget.stop_control_signal.connect(self.on_stop_realtime_control)
 
-        main_layout.addSpacing(8)
-        tabs = QTabWidget()
+        self.register_stage_widget(self.device_controls_frame)
+        self.register_stage_widget(self.AdvancedTab)
+        self.register_stage_widget(self.PathTab)
+        self.register_camera_widget(self.CameraTab)
 
-        advanced_tab = QWidget()
-        advanced_tab.setObjectName("AdvancedTab")
-        advanced_layout = QGridLayout(advanced_tab)
-        advanced_layout.setContentsMargins(QMargins(0, 11, 0, 0))
+        # Advanced tab
+        self.btn_3point_alignment.clicked.connect(self.run_3point_alignment)
+        self.btn_set_origin.clicked.connect(self.set_origin)
+        self.btn_set_tracking.clicked.connect(self.set_tracking_point)
+        self.btn_clear.clicked.connect(self.clear_draw_buffer)
+        self.btn_load_transform.clicked.connect(self.load_transform)
+        self.btn_save_transform.clicked.connect(self.save_transform)
+        self.btn_fiber_alignment.clicked.connect(self.run_fiber_alignment)
 
-        advanced_layout.addWidget(
-            self.register_stage_widget(self.create_button("3-Point Alignment", self.run_3point_alignment, font)),
-            1,
-            0,
-        )
-        advanced_layout.addWidget(
-            self.register_stage_widget(self.create_button("Set Origin", self.set_origin, font)),
-            1,
-            1,
-        )
+        # Path / GCode tab
+        self.btn_add_waypoint.clicked.connect(self.add_waypoint)
+        self.btn_clear_waypoints.clicked.connect(self.clear_waypoints)
+        self.btn_run_path.clicked.connect(self.run_path)
+        self.btn_save_path.clicked.connect(self.save_path)
+        self.run_gcode_button.clicked.connect(self.run_gcode_from_file)
 
-        tracking_button = self.create_button("Set Tracking Point", self.set_tracking_point, font)
-        self.register_camera_widget(tracking_button)
-        advanced_layout.addWidget(tracking_button, 2, 0)
+        # Camera tab
+        self.btn_save_screenshot.clicked.connect(self.save_screenshot)
 
-        clear_button = self.create_button("Clear", self.clear_draw_buffer, font)
-        self.register_camera_widget(clear_button)
-        advanced_layout.addWidget(clear_button, 2, 1)
-
-        advanced_layout.addWidget(
-            self.register_stage_widget(self.create_button("Load Transform", self.load_transform, font)),
-            3,
-            0,
-        )
-        advanced_layout.addWidget(
-            self.register_stage_widget(self.create_button("Save Transform", self.save_transform, font)),
-            3,
-            1,
-        )
-
-        fiber_button = self.create_button("Fiber Alignment", self.run_fiber_alignment, font)
-        self.register_stage_widget(fiber_button)
-        self.register_camera_widget(fiber_button)
-        advanced_layout.addWidget(fiber_button, 4, 0)
-        advanced_layout.addItem(QSpacerItem(0, 10, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
-        tabs.addTab(advanced_tab, "Advanced")
-
-        path_tab = QWidget()
-        path_tab.setObjectName("PathTab")
-        path_layout = QVBoxLayout(path_tab)
-
-        self.waypoint_info_label = self.create_label("Path Control")
-        path_layout.addWidget(self.waypoint_info_label)
-
-        wp_layout = QGridLayout()
-        wp_layout.addWidget(
-            self.register_stage_widget(self.create_button("Add Waypoint", self.add_waypoint, font)),
-            0,
-            0,
-        )
-        wp_layout.addWidget(
-            self.register_stage_widget(self.create_button("Clear Waypoints", self.clear_waypoints, font)),
-            0,
-            1,
-        )
-        wp_layout.addWidget(
-            self.register_stage_widget(self.create_button("Run Path", self.run_path, font)),
-            1,
-            0,
-        )
-        wp_layout.addWidget(
-            self.register_stage_widget(self.create_button("Save Path", self.save_path, font)),
-            1,
-            1,
-        )
-        path_layout.addLayout(wp_layout)
-
-        self.run_gcode_button = self.register_stage_widget(
-            self.create_button("Run GCode", self.run_gcode_from_file, font)
-        )
-        self.run_gcode_button.setCheckable(True)
-        path_layout.addWidget(self.run_gcode_button)
-        tabs.addTab(path_tab, "Path / GCode")
-
-        camera_tab = QWidget()
-        camera_tab.setObjectName("CameraTab")
-        camera_layout = QVBoxLayout(camera_tab)
-
-        exposure_layout, self.exposure_spinbox = self.create_spinbox(
-            label_text="Exposure:",
-            min_val=-50,
-            max_val=100000,
-            step=1,
-            default=1000,
-            decimals=0,
-            update_immediately=True,
-            callback=self.apply_camera_settings,
-        )
-        self.register_camera_widget(self.exposure_spinbox)
-        camera_layout.addLayout(exposure_layout)
-
-        gain_layout, self.gain_spinbox = self.create_spinbox(
-            label_text="Gain:",
-            min_val=-24,
-            max_val=100,
-            step=1,
-            default=0,
-            decimals=0,
-            update_immediately=True,
-            callback=self.apply_camera_settings,
-        )
-        self.register_camera_widget(self.gain_spinbox)
-        camera_layout.addLayout(gain_layout)
-
-        wb_layout, self.white_balance_spinbox = self.create_spinbox(
-            label_text="White Balance:",
-            min_val=0,
-            max_val=10000,
-            step=100,
-            default=3000,
-            decimals=0,
-            update_immediately=True,
-            callback=self.apply_camera_settings,
-        )
-        self.register_camera_widget(self.white_balance_spinbox)
-        camera_layout.addLayout(wb_layout)
-
-        camera_layout.addItem(QSpacerItem(0, 10, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
-        screenshot_button = self.create_button("Save Screenshot", self.save_screenshot, font)
-        self.register_camera_widget(screenshot_button)
-        camera_layout.addWidget(screenshot_button)
-        tabs.addTab(camera_tab, "Camera")
+        # Home button
+        self.btn_home.clicked.connect(self.home)
 
         self.update_waypoint_info()
-        main_layout.addWidget(tabs)
-
-        home_button = self.register_stage_widget(self.create_button("Home", self.home, font))
-        main_layout.addWidget(home_button)
-        main_layout.addItem(QSpacerItem(0, 8, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
-
-        self.video_viewer.setMinimumWidth(600)
-        self.video_viewer.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.video_viewer.setStyleSheet("background-color: black; border: 2px solid #444;")
-
-        left_panel_scroll = QScrollArea()
-        left_panel_scroll.setWidgetResizable(True)
-        left_panel_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        left_panel_scroll.setWidget(left_panel)
-        left_panel_scroll.setFixedWidth(396)
-        left_panel_scroll.setStyleSheet("QScrollArea { border: none; background-color: transparent; }")
-        self.tool_panel = left_panel_scroll
-
-        main_h_layout.addWidget(left_panel_scroll)
-        main_h_layout.addWidget(self.video_viewer, stretch=1)
-
-        self.set_stylesheet()
-
-    @staticmethod
-    def create_label(text, alignment=Qt.AlignmentFlag.AlignLeft, font_size=12):
-        label = QLabel(text)
-        label.setAlignment(alignment)
-        label.setFont(QFont("Noto Sans", font_size))
-        return label
-
-    @staticmethod
-    def create_button(label, slot, font):
-        btn = QPushButton(label)
-        btn.setMinimumSize(60, 40)
-        btn.setMaximumHeight(40)
-        btn.clicked.connect(slot)
-        return btn
-
-    @staticmethod
-    def create_compact_button(label, slot):
-        btn = QPushButton(label)
-        btn.setMinimumHeight(30)
-        btn.setMaximumHeight(30)
-        btn.setMinimumWidth(54)
-        btn.clicked.connect(slot)
-        return btn
-
-    @staticmethod
-    def create_spinbox(label_text, min_val, max_val, step, default, decimals, update_immediately, callback):
-        layout = QHBoxLayout()
-        label = QLabel(label_text)
-        spinbox = QDoubleSpinBox()
-        spinbox.setRange(min_val, max_val)
-        spinbox.setSingleStep(step)
-        spinbox.setValue(default)
-        spinbox.setDecimals(decimals)
-
-        if update_immediately:
-            spinbox.valueChanged.connect(callback)
-        else:
-            spinbox.editingFinished.connect(callback)
-
-        layout.addWidget(label)
-        layout.addWidget(spinbox)
-        return layout, spinbox
 
     def register_stage_widget(self, widget):
         self.stage_dependent_widgets.append(widget)
@@ -454,75 +188,6 @@ class DeviceControlMainWindow(QMainWindow):
     def register_camera_widget(self, widget):
         self.camera_dependent_widgets.append(widget)
         return widget
-
-    def set_stylesheet(self):
-        self.setStyleSheet("""
-            QTabWidget > QStackedWidget > QWidget,
-            QTabWidget QLabel {
-                background-color: #353535;
-            }
-
-            QWidget {
-                background-color: #2b2b2b;
-                color: white;
-            }
-
-            QPushButton, QComboBox, QDoubleSpinBox {
-                background-color: #2d5291;
-                color: white;
-                border: 1px solid #202020;
-                border-radius: 3px;
-                padding: 6px;
-            }
-
-            QComboBox QAbstractItemView {
-                background-color: #1f1f1f;
-                color: white;
-                selection-background-color: #3b72d1;
-            }
-
-            QPushButton:hover {
-                background-color: #3b72d1;
-            }
-
-            QPushButton:checked,
-            QPushButton:pressed {
-                background-color: #32a877;
-            }
-
-            QWidget#AdvancedTab QPushButton {
-                background-color: #4d5291;
-            }
-
-            QWidget#AdvancedTab QPushButton:hover {
-                background-color: #5b72d1;
-            }
-
-            QWidget#AdvancedTab QPushButton:checked,
-            QWidget#AdvancedTab QPushButton:pressed {
-                background-color: #32a877;
-            }
-
-            QPushButton:disabled, QComboBox:disabled, QDoubleSpinBox:disabled {
-                background-color: #4a4a4a;
-                color: #b0b0b0;
-            }
-
-            QTabWidget::pane {
-                border: none;
-            }
-
-            QTabBar::tab {
-                background: #353535;
-                padding: 6px;
-                border: 1px solid #282828;
-            }
-
-            QTabBar::tab:selected {
-                background: #856A51;
-                border-bottom: none;
-            }
-        """)
 
     def show_placeholder_frame(self):
         placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
@@ -575,15 +240,35 @@ class DeviceControlMainWindow(QMainWindow):
         for widget in self.camera_dependent_widgets:
             widget.setEnabled(camera_connected)
 
-        self.serial_connect_button.setEnabled(not stage_connected and self.serial_combo.count() > 0)
-        self.serial_disconnect_button.setEnabled(stage_connected)
-        self.camera_connect_button.setEnabled(not camera_connected and self.camera_combo.count() > 0)
-        self.camera_disconnect_button.setEnabled(camera_connected)
+        self.serial_connect_button.setText("Close" if stage_connected else "Open")
+        self.serial_connect_button.setEnabled(stage_connected or self.serial_combo.count() > 0)
+        self.camera_connect_button.setText("Close" if camera_connected else "Open")
+        self.camera_connect_button.setEnabled(camera_connected or self.camera_combo.count() > 0)
 
-        stage_status = self.connected_stage_label if stage_connected else "Disconnected"
-        camera_status = self.connected_camera_label if camera_connected else "Disconnected"
+        stage_status = f"[{self.connected_stage_label}]" if stage_connected else "[Disconnected]"
+        camera_status = f"[{self.connected_camera_label}]" if camera_connected else "[Disconnected]"
         self.serial_status_label.setText(stage_status)
         self.camera_status_label.setText(camera_status)
+
+        for label, connected in (
+            (self.serial_status_label, stage_connected),
+            (self.camera_status_label, camera_connected),
+        ):
+            label.setProperty("connected", connected)
+            label.style().unpolish(label)
+            label.style().polish(label)
+
+    def toggle_stage_connection(self):
+        if self.oms.is_connected():
+            self.disconnect_stage()
+        else:
+            self.connect_selected_stage()
+
+    def toggle_camera_connection(self):
+        if self.camera is not None and self.camera.is_connected():
+            self.disconnect_camera()
+        else:
+            self.connect_selected_camera()
 
     def connect_selected_stage(self):
         if self.oms.is_connected():

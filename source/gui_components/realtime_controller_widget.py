@@ -5,25 +5,22 @@
 # Author:  M. S. (diffraction limited)
 # --------------------------------------------------------------------------------------
 
+import os
 import time
 
 from PySide6.QtWidgets import (
     QWidget,
-    QPushButton,
-    QDoubleSpinBox,
-    QLabel,
-    QGridLayout,
-    QSizePolicy,
     QApplication
 )
-from PySide6.QtCore import Qt, QObject, QEvent, QMargins, QPoint, Signal, QMutex
+from PySide6.QtCore import Qt, QObject, QEvent, QPoint, Signal, QMutex, QThread
 from PySide6.QtGui import QCursor, QMouseEvent
+from PySide6.QtUiTools import loadUiType
 from hardware.open_micro_stage_api import OpenMicroStageInterface
 import numpy as np
 
-from PySide6.QtCore import QThread, Signal
-import numpy as np
-from PySide6.QtGui import QCursor
+_ui_path = os.path.join(os.path.dirname(__file__), "realtime_controller_widget.ui")
+Ui_RealtimeControllerWidget, _ = loadUiType(_ui_path)
+
 
 class UpdateWorker(QThread):
     pose_changed = Signal(np.ndarray)  # send updated pose to main thread if needed
@@ -107,11 +104,11 @@ class UpdateWorker(QThread):
             time.sleep(1.0 / max(self.update_frequency, 1))
 
 
-class RealtimeControllerWidget(QWidget):
+class RealtimeControllerWidget(QWidget, Ui_RealtimeControllerWidget):
     stop_control_signal = Signal()
     start_control_signal = Signal()
 
-    def __init__(self, base_widget: QWidget, oms: OpenMicroStageInterface, parent=None):
+    def __init__(self, base_widget: QWidget = None, oms: OpenMicroStageInterface = None, parent=None):
         super().__init__(parent)
 
         self.oms = oms
@@ -123,48 +120,17 @@ class RealtimeControllerWidget(QWidget):
         self.motion_limits = np.array( [1.0, 1.0, 1.0], dtype=np.float32)
 
         self.update_thread = None
-        self.setup_ui()
-
-        self.base_widget.setMouseTracking(True)
-        self.base_widget.installEventFilter(self)
-
-    def setup_ui(self):
-        self.mouse_control_button = QPushButton("Realtime Mouse Control")
-        self.mouse_control_button.setCheckable(True)
-        self.mouse_control_button.setSizePolicy(
-            QSizePolicy.Policy.Preferred,
-            QSizePolicy.Policy.Expanding
-        )
+        self.setupUi(self)
         self.mouse_control_button.toggled.connect(self.on_mouse_control_toggled)
 
-        self.spinbox_xy_range = QDoubleSpinBox()
-        self.spinbox_xy_range.setValue(0.5)
-        self.spinbox_z_range = QDoubleSpinBox()
-        self.spinbox_z_range.setValue(0.0)
+        if base_widget is not None:
+            self.setup(base_widget, oms)
 
-        label1 = QLabel("XY-Range")
-        label1.setAlignment(Qt.AlignmentFlag.AlignRight)
-        label2 = QLabel("Z-Range")
-        label2.setAlignment(Qt.AlignmentFlag.AlignRight)
-
-        layout = QGridLayout(self)
-
-        # Button on the left, spanning two rows
-        layout.addWidget(self.mouse_control_button, 0, 0, 2, 1)
-
-        # Right side: one row per label + spinbox
-        layout.addWidget(label1, 0, 1)
-        layout.addWidget(self.spinbox_xy_range, 0, 2)
-
-        layout.addWidget(label2, 1, 1)
-        layout.addWidget(self.spinbox_z_range, 1, 2)
-
-        layout.setContentsMargins(QMargins(0, 0, 0, 0))
-        layout.setColumnStretch(0, 2)  # button
-        layout.setColumnStretch(1, 1)  # labels
-        layout.setColumnStretch(2, 1)  # spinboxes
-
-        self.setLayout(layout)
+    def setup(self, base_widget: QWidget, oms: OpenMicroStageInterface):
+        self.base_widget = base_widget
+        self.oms = oms
+        self.base_widget.setMouseTracking(True)
+        self.base_widget.installEventFilter(self)
 
     def get_current_pose(self):
         if self.update_thread is None:

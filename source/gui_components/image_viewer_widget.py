@@ -12,8 +12,8 @@ from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsScene, QGraphicsView
 
 
 class ImageViewerWidget(QGraphicsView):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
 
         self.pixel_per_mm = 1.0  # Base calibration
 

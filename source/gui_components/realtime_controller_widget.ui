@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>RealtimeControllerWidget</class>
+ <widget class="QWidget" name="RealtimeControllerWidget">
+  <layout class="QGridLayout" name="gridLayout" columnstretch="2,1,1">
+   <property name="leftMargin"><number>0</number></property>
+   <property name="topMargin"><number>0</number></property>
+   <property name="rightMargin"><number>0</number></property>
+   <property name="bottomMargin"><number>0</number></property>
+   <item row="0" column="0" rowspan="2">
+    <widget class="QPushButton" name="mouse_control_button">
+     <property name="text"><string>Realtime Mouse Control</string></property>
+     <property name="checkable"><bool>true</bool></property>
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
+    </widget>
+   </item>
+   <item row="0" column="1">
+    <widget class="QLabel" name="label_xy_range">
+     <property name="text"><string>XY-Range</string></property>
+     <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+    </widget>
+   </item>
+   <item row="0" column="2">
+    <widget class="QDoubleSpinBox" name="spinbox_xy_range">
+     <property name="value"><double>0.500000</double></property>
+    </widget>
+   </item>
+   <item row="1" column="1">
+    <widget class="QLabel" name="label_z_range">
+     <property name="text"><string>Z-Range</string></property>
+     <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+    </widget>
+   </item>
+   <item row="1" column="2">
+    <widget class="QDoubleSpinBox" name="spinbox_z_range">
+     <property name="value"><double>0.000000</double></property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

@@ -313,6 +313,7 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
             return OpenCVCamera(
                 camera_index=config["index"],
                 backend=config.get("backend", cv2.CAP_ANY),
+                resolution=(1920, 1080)
             )
 
         if config["kind"] == "basler":

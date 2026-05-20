@@ -56,11 +56,6 @@ class UpdateWorker(QThread):
         self.motion_limits = np.array( limits, dtype=np.float32)
         self.mutex.unlock()
 
-    def set_last_mouse_pos(self, pos):
-        self.mutex.lock()
-        self.last_mouse_pos = pos
-        self.mutex.unlock()
-
     def on_mouse_wheel(self, delta):
         self.mutex.lock()
         self.relative_device_pos[2] += delta * self.motion_gain[2]
@@ -85,10 +80,13 @@ class UpdateWorker(QThread):
     def run(self):
         while self.running:
             self.mutex.lock()
-            pos = QCursor.pos()  # safe from any thread
+            pos = QCursor.pos()
             delta = pos - self.last_mouse_pos
             self.last_mouse_pos = pos
             self.mutex.unlock()
+
+            if abs(delta.x()) > 150 or abs(delta.y()) > 150:
+                delta = QPoint(0, 0)
 
             t = self.lowpass_strength
             self.relative_device_pos += np.array([delta.x(), delta.y(), 0.0]) * self.motion_gain
@@ -154,7 +152,7 @@ class RealtimeControllerWidget(QWidget, Ui_RealtimeControllerWidget):
             return
 
         self.start_control_signal.emit()
-        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.BlankCursor))
+       # QApplication.setOverrideCursor(QCursor(Qt.CursorShape.BlankCursor))
         self.base_widget.setFocus()
         self.constrain_cursor()
 
@@ -186,17 +184,14 @@ class RealtimeControllerWidget(QWidget, Ui_RealtimeControllerWidget):
     def constrain_cursor(self):
         local = self.base_widget.mapFromGlobal(QCursor.pos())
         w, h = self.base_widget.width(), self.base_widget.height()
-        margin = 50
+        margin = 100
 
         # Wrap coordinates if out of bounds
-        x = margin if local.x() >= w-margin else w - margin if local.x() < margin else local.x()
-        y = margin if local.y() >= h-margin else h - margin if local.y() < margin else local.y()
+        x = margin if local.x() > w-margin else w - margin if local.x() < margin else local.x()
+        y = margin if local.y() > h-margin else h - margin if local.y() < margin else local.y()
 
         if (x, y) != (local.x(), local.y()):
             pos = self.base_widget.mapToGlobal(QPoint(x, y))
-            if self.update_thread is not None:
-                self.update_thread.set_last_mouse_pos(pos)
-
             QCursor.setPos(pos)
 
     # ---- Event Filter ----

@@ -636,7 +636,7 @@
          </sizepolicy>
         </property>
         <property name="currentIndex">
-         <number>0</number>
+         <number>3</number>
         </property>
         <widget class="QWidget" name="ConnectTab">
          <property name="styleSheet">
@@ -1262,7 +1262,7 @@ QPushButton:disabled {
                <double>1.000000000000000</double>
               </property>
               <property name="value">
-               <double>1000.000000000000000</double>
+               <double>500.000000000000000</double>
               </property>
              </widget>
             </item>
@@ -1288,7 +1288,7 @@ QPushButton:disabled {
                <double>1.000000000000000</double>
               </property>
               <property name="value">
-               <double>0.000000000000000</double>
+               <double>50.000000000000000</double>
               </property>
              </widget>
             </item>
@@ -1314,7 +1314,7 @@ QPushButton:disabled {
                <double>100.000000000000000</double>
               </property>
               <property name="value">
-               <double>3000.000000000000000</double>
+               <double>4200.000000000000000</double>
               </property>
              </widget>
             </item>

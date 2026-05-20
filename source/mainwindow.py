@@ -111,7 +111,7 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
             self.start_camera_stream()
 
         if self.oms.is_connected():
-            self.connected_stage_label = "Configured Serial Device"
+            self.connected_stage_label = "Configured Device"
             self.on_stage_connected()
 
     def init_ui(self):

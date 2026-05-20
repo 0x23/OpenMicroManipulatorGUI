@@ -5,6 +5,7 @@
 # Author:  M. S. (diffraction limited)
 # --------------------------------------------------------------------------------------
 
+import os
 import threading
 import time
 import re
@@ -94,6 +95,15 @@ class SerialInterface:
                 print(Style.RESET_ALL, end='')
                 return True
             except (serial.SerialException, OSError) as e:
+                if getattr(e, 'errno', None) == 13:  # Permission denied
+                    import os, sys
+                    print(f"\n[SerialInterface] Permission denied on '{self.port}'.")
+                    if sys.platform.startswith('linux'):
+                        username = os.getenv('USER') or os.getenv('LOGNAME') or 'your_user'
+                        print(f"[SerialInterface] Add your user to the dialout group and re-login: sudo usermod -aG dialout {username}")
+                    print(Style.RESET_ALL, end='')
+                    self.serial = None
+                    return False
                 print('.', end='')
                 time.sleep(0.2)
 
@@ -244,9 +254,10 @@ class OpenMicroStageInterface:
 
         for port in sorted(list_ports.comports(), key=lambda item: item.device):
             description = (port.description or "").strip()
-            label = port.device
+            device_name = os.path.basename(port.device)
+            label = device_name
             if description and description.lower() != "n/a" and description != port.device:
-                label = f"{port.device} - {description}"
+                label = f"{device_name} - {description}"
 
             devices.append({
                 "id": port.device,

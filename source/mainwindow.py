@@ -21,7 +21,7 @@ from hardware.device_discovery import list_camera_devices, list_serial_devices
 from hardware.open_micro_stage_api import OpenMicroStageInterface
 from image_processing.image_point_tracker import ImagePointTracker
 from optical_alignment import OpticalAlignment
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QSettings, QThread, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtUiTools import loadUiType
 from PySide6.QtWidgets import (
@@ -80,6 +80,7 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
         self.camera_stream_worker = None
         self.gcode_runner = None
 
+        self.settings = QSettings()
         self.pixel_per_mm = 2000.0
         self.connected_stage_label = None
         self.connected_camera_label = None
@@ -107,6 +108,7 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
 
         if self.camera is not None and self.camera.is_connected():
             self.connected_camera_label = "Configured Camera"
+            self.load_camera_settings(self.connected_camera_label)
             self.apply_camera_settings()
             self.start_camera_stream()
 
@@ -346,9 +348,41 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
         self.camera = camera
         self.connected_camera_label = config["label"]
         self.clear_visual_state()
+        self.load_camera_settings(self.connected_camera_label)
         self.apply_camera_settings()
         self.start_camera_stream()
         self.update_connection_state()
+
+    def camera_settings_group(self, camera_name):
+        return f"CameraSettings/{camera_name}"
+
+    def load_camera_settings(self, camera_name):
+        if not camera_name:
+            return
+
+        group = self.camera_settings_group(camera_name)
+        for spinbox in (self.exposure_spinbox, self.gain_spinbox, self.white_balance_spinbox):
+            spinbox.blockSignals(True)
+
+        try:
+            self.exposure_spinbox.setValue(
+                self.settings.value(f"{group}/exposure", self.exposure_spinbox.value(), type=float))
+            self.gain_spinbox.setValue(
+                self.settings.value(f"{group}/gain", self.gain_spinbox.value(), type=float))
+            self.white_balance_spinbox.setValue(
+                self.settings.value(f"{group}/white_balance", self.white_balance_spinbox.value(), type=float))
+        finally:
+            for spinbox in (self.exposure_spinbox, self.gain_spinbox, self.white_balance_spinbox):
+                spinbox.blockSignals(False)
+
+    def save_camera_settings(self, camera_name):
+        if not camera_name:
+            return
+
+        group = self.camera_settings_group(camera_name)
+        self.settings.setValue(f"{group}/exposure", self.exposure_spinbox.value())
+        self.settings.setValue(f"{group}/gain", self.gain_spinbox.value())
+        self.settings.setValue(f"{group}/white_balance", self.white_balance_spinbox.value())
 
     def apply_camera_settings(self):
         if self.camera is None or not self.camera.is_connected():
@@ -368,6 +402,8 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
             self.camera.set_white_balance(self.white_balance_spinbox.value())
         except Exception:
             pass
+
+        self.save_camera_settings(self.connected_camera_label)
 
     def start_camera_stream(self):
         if self.camera is None or not self.camera.is_connected():
@@ -426,6 +462,7 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
             self.oms.set_max_acceleration(self.accel_spinbox.value(), 5000)
 
     def apply_tool_setting(self):
+        return # TODO: remove me this is just for testing
         if self.oms.is_connected():
             self.oms.set_tool_output(0, self.tool_spinbox.value(), immediate=True)
 
@@ -738,6 +775,60 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
         img = cv2.cvtColor(self.last_frame, cv2.COLOR_RGB2BGR)
         cv2.imwrite(path, img)
 
+    def run_spacekey_command(self):
+        self.realtime_control_widget.stop_control()
+        pos = self.oms.read_current_position(True)
+
+        mode = 2
+        if mode == 0:
+            num_cycles = 8
+            y = pos[1]
+            for _ in range(num_cycles):
+                self.oms.set_tool_output(0, self.tool_spinbox.value(), False)
+                self.oms.dwell(0.05, False)
+                self.oms.set_tool_output(0, 0.00, False)
+                self.oms.move_to(pos[0], y, pos[2]-0.005, 10)
+                self.oms.dwell(0.05, False)
+                y += 0.01
+                self.oms.move_to(pos[0], y, pos[2], 10)
+            self.oms.move_to(pos[0], pos[1], pos[2]-0.01, 10)
+            self.oms.dwell(0.1, True)
+        if mode == 1:
+            num_cycles = 1
+            on_step = 0.05
+            off_step = 0.00
+            accel_step = 0.001
+            decel_step = 0.001
+            feed = 0.1
+
+            y = pos[1] + accel_step
+            self.oms.move_to(pos[0], y, pos[2], feed)
+            for _ in range(num_cycles):
+                self.oms.set_tool_output(0, self.tool_spinbox.value(), False)
+                y += on_step
+                self.oms.move_to(pos[0], y, pos[2], feed)
+                self.oms.set_tool_output(0, 0.00, False)
+                y += off_step
+                self.oms.move_to(pos[0], y, pos[2], feed)
+            y += decel_step
+            self.oms.move_to(pos[0], y, pos[2], feed)
+            self.oms.move_to(pos[0], pos[1], pos[2]-0.001, 10)
+            self.oms.dwell(0.1, True)
+        if mode == 2:
+            side = 0.05
+            feed = 0.1
+
+            self.oms.set_tool_output(0, self.tool_spinbox.value(), False)
+            self.oms.move_to(pos[0]-side, pos[1], pos[2], feed)
+            self.oms.move_to(pos[0]-side, pos[1]+side, pos[2], feed)
+            self.oms.move_to(pos[0], pos[1]+side, pos[2], feed)
+            self.oms.move_to(pos[0], pos[1], pos[2], feed)
+            self.oms.move_to(pos[0], pos[1], pos[2]-0.002, feed)
+            self.oms.set_tool_output(0, 0.0, False)
+            self.oms.dwell(0.1, True)
+
+        pass
+
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_A:
             self.move_axis(0, -1)
@@ -756,6 +847,8 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
         elif event.key() == Qt.Key.Key_P:
             self.save_screenshot()
         elif event.key() == Qt.Key.Key_F11:
-            self.tool_panel.setVisible(not self.tool_panel.isVisible())
+            self.toolbar_widget.setVisible(not self.toolbar_widget.isVisible())
+        elif event.key() == Qt.Key.Key_Space:
+            self.run_spacekey_command()
         else:
             super().keyPressEvent(event)

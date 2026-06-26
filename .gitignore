@@ -1,2 +1,7 @@
 __pycache__/
 *.py[cod]
+screenshots/*
+gcode/*
+source/transform.json
+transform.json
+.idea/*

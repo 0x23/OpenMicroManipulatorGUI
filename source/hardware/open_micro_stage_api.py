@@ -395,6 +395,7 @@ class OpenMicroStageInterface:
     def move_to(self, x, y, z, f, move_immediately=False, blocking=True, timeout=1):
         """
         Moves the stage to an absolute position with a specified feed rate.
+        The workspace transform is applied.
         :param x: Target X position (in workspace coordinates).
         :param y: Target Y position (in workspace coordinates).
         :param z: Target Z position (in workspace coordinates).

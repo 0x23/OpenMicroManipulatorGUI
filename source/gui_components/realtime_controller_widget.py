@@ -21,11 +21,31 @@ import numpy as np
 _ui_path = os.path.join(os.path.dirname(__file__), "realtime_controller_widget.ui")
 Ui_RealtimeControllerWidget, _ = loadUiType(_ui_path)
 
+# Channel order used throughout this file: (mouse_x, mouse_y, wheel).
+# Each entry is the device axis index (0=X, 1=Y, 2=Z) that channel drives.
+# Edit this list to remap which input drives which axis.
+# INPUT_AXIS_MAP = [0, 1, 2]
+INPUT_AXIS_MAP = [1, 2, 0]
+INPUT_AXIS_INVERT = [True, False, False] # optionaly invert direction.
+
+
+def remap_to_axes(channel_values, axis_map, invert=None):
+    """Scatter values (in channel order) into a 3D vector at axis_map.
+
+    If invert (booleans, one per channel) is given, those values are
+    negated before being placed onto their axis."""
+    values = np.asarray(channel_values, dtype=np.float32)
+    if invert is not None:
+        values = values * np.where(invert, -1.0, 1.0)
+    vec = np.zeros(3, dtype=np.float32)
+    vec[axis_map] = values
+    return vec
+
 
 class UpdateWorker(QThread):
     pose_changed = Signal(np.ndarray)  # send updated pose to main thread if needed
 
-    def __init__(self, oms, motion_gain, motion_limits, lowpass_strength=0.5, update_frequency=240, parent=None):
+    def __init__(self, oms, motion_gain, motion_limits, lowpass_strength=0.1, update_frequency=240, parent=None):
         super().__init__(parent)
         self.oms = oms
         self.motion_gain =  np.array( motion_gain, dtype=np.float32)
@@ -33,6 +53,7 @@ class UpdateWorker(QThread):
         self.running = True
         self.update_frequency = update_frequency
         self.motion_limits = np.array( motion_limits, dtype=np.float32)
+        self.axis_map = np.array(INPUT_AXIS_MAP)
 
         self.last_mouse_pos = QCursor.pos()
         self.relative_device_pos = np.zeros(3)
@@ -58,7 +79,8 @@ class UpdateWorker(QThread):
 
     def on_mouse_wheel(self, delta):
         self.mutex.lock()
-        self.relative_device_pos[2] += delta * self.motion_gain[2]
+        axis = self.axis_map[2]  # wheel
+        self.relative_device_pos[axis] += delta * self.motion_gain[axis]
         self.mutex.unlock()
 
     def move_relative(self, x, y, z):
@@ -89,7 +111,8 @@ class UpdateWorker(QThread):
                 delta = QPoint(0, 0)
 
             t = self.lowpass_strength
-            self.relative_device_pos += np.array([delta.x(), delta.y(), 0.0]) * self.motion_gain
+            delta_vec = remap_to_axes((delta.x(), delta.y(), 0), self.axis_map)
+            self.relative_device_pos += delta_vec * self.motion_gain
             self.relative_device_pos = np.clip(self.relative_device_pos, -self.motion_limits, self.motion_limits)
             self.relative_device_pos_lp = self.relative_device_pos * (1.0 - t) + self.relative_device_pos_lp * t
             self.current_pose[:] = self.initial_device_pos + self.relative_device_pos_lp + self.device_pos_offset
@@ -139,9 +162,11 @@ class RealtimeControllerWidget(QWidget, Ui_RealtimeControllerWidget):
         return self.update_thread is not None and self.update_thread.running
 
     def read_gui_settings(self):
-        lx = ly = self.spinbox_xy_range.value()
-        lz = self.spinbox_z_range.value()
-        self.motion_limits = np.array([lx, ly, lz], np.float32)
+        # The XY-range spinbox bounds the mouse_x/mouse_y channels, and the
+        # Z-range spinbox bounds the wheel channel.
+        xy_range = self.spinbox_xy_range.value()
+        z_range = self.spinbox_z_range.value()
+        self.motion_limits = remap_to_axes((xy_range, xy_range, z_range), INPUT_AXIS_MAP)
 
     def start_control(self):
         if not self.oms.is_connected():
@@ -152,12 +177,15 @@ class RealtimeControllerWidget(QWidget, Ui_RealtimeControllerWidget):
             return
 
         self.start_control_signal.emit()
-       # QApplication.setOverrideCursor(QCursor(Qt.CursorShape.BlankCursor))
+        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.BlankCursor))
         self.base_widget.setFocus()
         self.constrain_cursor()
 
         self.read_gui_settings()
-        motion_gain = self.motion_limits * self.motion_gain
+        # self.motion_gain is indexed by input channel (mouse_x, mouse_y, wheel);
+        # remap it onto axes (applying any inversion) before scaling by each
+        # axis's limit.
+        motion_gain = remap_to_axes(self.motion_gain, INPUT_AXIS_MAP, INPUT_AXIS_INVERT) * self.motion_limits
 
         self.update_thread = UpdateWorker(self.oms,
                                           motion_gain=motion_gain,

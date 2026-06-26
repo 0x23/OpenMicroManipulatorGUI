@@ -5,6 +5,8 @@
 # Author:  M. S. (diffraction limited)
 # --------------------------------------------------------------------------------------
 
+import glob
+import re
 import sys
 
 import cv2
@@ -14,6 +16,19 @@ from hardware.abstract_camera import AbstractCamera
 
 
 class OpenCVCamera(AbstractCamera):
+    @staticmethod
+    def enumeration_indices(max_indices):
+        if sys.platform.startswith("linux"):
+            indices = sorted(
+                int(match.group(1))
+                for path in glob.glob("/dev/video*")
+                if (match := re.search(r"(\d+)$", path))
+            )
+            if indices:
+                return indices
+
+        return list(range(max_indices))
+
     @staticmethod
     def _enumeration_backends():
         if sys.platform.startswith("win"):
@@ -36,34 +51,40 @@ class OpenCVCamera(AbstractCamera):
 
     @staticmethod
     def enumerate_devices(max_indices=8):
+        print("Enumerating OpenCV cameras (driver errors below are expected and can be ignored)...")
         devices = []
 
-        for index in range(max_indices):
-            for backend, backend_label in OpenCVCamera._enumeration_backends():
-                capture = None
-                try:
-                    capture = cv2.VideoCapture(index, backend)
-                    if not capture.isOpened():
-                        continue
+        previous_log_level = cv2.utils.logging.getLogLevel()
+        cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_SILENT)
+        try:
+            for index in OpenCVCamera.enumeration_indices(max_indices):
+                for backend, backend_label in OpenCVCamera._enumeration_backends():
+                    capture = None
+                    try:
+                        capture = cv2.VideoCapture(index, backend)
+                        if not capture.isOpened():
+                            continue
 
-                    ok, _ = capture.read()
-                    if not ok:
-                        continue
+                        ok, _ = capture.read()
+                        if not ok:
+                            continue
 
-                    devices.append({
-                        "kind": "opencv",
-                        "id": f"opencv:{index}:{backend}",
-                        "label": f"OpenCV Camera {index}",
-                        "index": index,
-                        "backend": backend,
-                        "backend_label": backend_label,
-                    })
-                    break
-                except Exception:
-                    continue
-                finally:
-                    if capture is not None:
-                        capture.release()
+                        devices.append({
+                            "kind": "opencv",
+                            "id": f"opencv:{index}:{backend}",
+                            "label": f"OpenCV Camera {index}",
+                            "index": index,
+                            "backend": backend,
+                            "backend_label": backend_label,
+                        })
+                        break
+                    except Exception:
+                        continue
+                    finally:
+                        if capture is not None:
+                            capture.release()
+        finally:
+            cv2.utils.logging.setLogLevel(previous_log_level)
 
         return devices
 

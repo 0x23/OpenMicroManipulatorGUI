@@ -462,7 +462,7 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
             self.oms.set_max_acceleration(self.accel_spinbox.value(), 5000)
 
     def apply_tool_setting(self):
-        # return # TODO: remove me this is just for testing
+        return # TODO: remove me this is just for testing
         if self.oms.is_connected():
             self.oms.set_tool_output(0, self.tool_spinbox.value(), immediate=True)
 
@@ -776,7 +776,6 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
         cv2.imwrite(path, img)
 
     def run_spacekey_command(self):
-        return 
         self.realtime_control_widget.stop_control()
         pos = self.oms.read_current_position(True)
 

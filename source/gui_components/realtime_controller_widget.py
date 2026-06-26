@@ -25,11 +25,8 @@ Ui_RealtimeControllerWidget, _ = loadUiType(_ui_path)
 # Each entry is the device axis index (0=X, 1=Y, 2=Z) that channel drives.
 # Edit this list to remap which input drives which axis.
 # INPUT_AXIS_MAP = [0, 1, 2]
-#INPUT_AXIS_MAP = [1, 2, 0]
-#INPUT_AXIS_INVERT = [True, False, False] # optionaly invert direction.
-INPUT_AXIS_MAP = [0, 1, 2]
-INPUT_AXIS_INVERT = [False, False, False] # optionaly invert direction.
-
+INPUT_AXIS_MAP = [1, 2, 0]
+INPUT_AXIS_INVERT = [True, False, False] # optionaly invert direction.
 
 def remap_to_axes(channel_values, axis_map, invert=None):
     """Scatter values (in channel order) into a 3D vector at axis_map.

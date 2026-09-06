@@ -9,6 +9,8 @@ from abc import ABC, abstractmethod
 import numpy as np
 
 class AbstractCamera(ABC):
+    dark_image: np.ndarray = None
+
     @abstractmethod
     def close(self):
         """Release all camera resources."""
@@ -68,4 +70,9 @@ class AbstractCamera(ABC):
         """
         Check if the camera is connected and ready to grab images
         """
+        pass
+
+    @abstractmethod
+    def capture_dark_image(self, n_frames: int = 10):
+        """Capture a dark reference image by closing the shutter and averaging n_frames frames."""
         pass

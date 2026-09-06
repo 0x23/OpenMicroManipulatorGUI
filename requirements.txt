@@ -8,5 +8,6 @@ pyside6
 scikit-optimize
 pyserial
 opencv-python
+matplotlib
 
 pypylon  # only required when using camera from 'Basler'

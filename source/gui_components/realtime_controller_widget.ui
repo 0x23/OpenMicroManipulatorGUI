@@ -38,7 +38,7 @@
    </item>
    <item row="1" column="2">
     <widget class="QDoubleSpinBox" name="spinbox_z_range">
-     <property name="value"><double>0.000000</double></property>
+     <property name="value"><double>0.200000</double></property>
     </widget>
    </item>
   </layout>

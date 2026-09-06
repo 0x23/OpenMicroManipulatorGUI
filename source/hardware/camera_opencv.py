@@ -8,6 +8,7 @@
 import glob
 import re
 import sys
+import time
 
 import cv2
 import numpy as np
@@ -93,6 +94,11 @@ class OpenCVCamera(AbstractCamera):
         self.backend = backend
         self.cap = cv2.VideoCapture(self.camera_index, self.backend)
         self.grabbing = False
+        self.dark_image = None
+        # If no frame can be grabbed for this long, treat the camera as disconnected.
+        self.grab_failure_timeout_s = 2.0
+
+        resolution=(3840,2160)
 
         if not self.cap.isOpened():
             print(f"Failed to open OpenCV camera at index {self.camera_index}")
@@ -138,6 +144,19 @@ class OpenCVCamera(AbstractCamera):
         if self.cap:
             self.cap.set(cv2.CAP_PROP_EXPOSURE, float(exposure_time_us))
 
+    def capture_dark_image(self, n_frames=10):
+        if not self.cap:
+            return
+        prev_exposure = self.cap.get(cv2.CAP_PROP_EXPOSURE)
+        self.set_exposure_time(0)
+        frames = []
+        for _ in range(n_frames):
+            ret, frame = self.cap.read()
+            if ret:
+                frames.append(self._convert_frame(frame).astype(np.float32))
+        self.dark_image = np.mean(frames, axis=0) if frames else None
+        self.set_exposure_time(prev_exposure)
+
     def start_grabbing(self, single_grab=True):
         self.grabbing = True
 
@@ -152,7 +171,12 @@ class OpenCVCamera(AbstractCamera):
             return None
 
         ret, frame = self.cap.read()
-        return self._convert_frame(frame) if ret else None
+        if not ret:
+            return None
+        frame = self._convert_frame(frame)
+        if self.dark_image is not None and frame is not None:
+            frame = np.clip(frame.astype(np.float32) - self.dark_image, 0, 255).astype(np.uint8)
+        return frame
 
     def grab_loop(self, callback, timeout_ms=5000):
         if not self.cap:
@@ -160,11 +184,27 @@ class OpenCVCamera(AbstractCamera):
 
         frame = np.ones((100, 100, 3), dtype=np.uint8) * 60
         self.start_grabbing(single_grab=False)
+        failure_deadline = None
         try:
             while self.grabbing:
                 new_frame = self.grab_one(timeout_ms)
                 if new_frame is not None:
+                    failure_deadline = None
                     frame = new_frame
+                    frame = np.flip(frame, 0)
+                    frame = np.flip(frame, 1)
+                else:
+                    # No frame received. The camera may have been unplugged, in which
+                    # case reads keep failing forever. Allow a short grace period, then
+                    # treat the camera as disconnected so the stream can shut down
+                    # cleanly instead of spinning (or blocking) indefinitely.
+                    now = time.monotonic()
+                    if failure_deadline is None:
+                        failure_deadline = now + self.grab_failure_timeout_s
+                    elif now >= failure_deadline:
+                        raise RuntimeError("OpenCV camera disconnected (no frames received).")
+                    # Avoid busy-spinning while the camera is unavailable.
+                    time.sleep(0.05)
 
                 try:
                     if callback(frame) is False:

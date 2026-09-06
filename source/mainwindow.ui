@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>1280</width>
-    <height>907</height>
+    <height>961</height>
    </rect>
   </property>
   <property name="minimumSize">
@@ -145,7 +145,7 @@
     </property>
     <item>
      <widget class="QWidget" name="toolbar_widget" native="true">
-      <layout class="QVBoxLayout" name="toolbar_layout" stretch="1,0">
+      <layout class="QVBoxLayout" name="toolbar_layout" stretch="0,0">
        <property name="spacing">
         <number>12</number>
        </property>
@@ -168,7 +168,7 @@
          </property>
          <layout class="QVBoxLayout" name="device_controls_layout">
           <property name="spacing">
-           <number>12</number>
+           <number>10</number>
           </property>
           <property name="leftMargin">
            <number>0</number>
@@ -252,25 +252,6 @@
             <property name="spacing">
              <number>10</number>
             </property>
-            <item row="2" column="3">
-             <widget class="QPushButton" name="btn_z_minus">
-              <property name="minimumSize">
-               <size>
-                <width>60</width>
-                <height>40</height>
-               </size>
-              </property>
-              <property name="maximumSize">
-               <size>
-                <width>16777215</width>
-                <height>40</height>
-               </size>
-              </property>
-              <property name="text">
-               <string>Z-</string>
-              </property>
-             </widget>
-            </item>
             <item row="1" column="1">
              <widget class="QLabel" name="movement_center_label">
               <property name="text">
@@ -376,6 +357,25 @@
               </property>
              </widget>
             </item>
+            <item row="2" column="3">
+             <widget class="QPushButton" name="btn_z_minus">
+              <property name="minimumSize">
+               <size>
+                <width>60</width>
+                <height>40</height>
+               </size>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>16777215</width>
+                <height>40</height>
+               </size>
+              </property>
+              <property name="text">
+               <string>Z-</string>
+              </property>
+             </widget>
+            </item>
            </layout>
           </item>
           <item>
@@ -389,7 +389,7 @@
             <property name="sizeHint" stdset="0">
              <size>
               <width>20</width>
-              <height>16</height>
+              <height>10</height>
              </size>
             </property>
            </spacer>
@@ -540,7 +540,26 @@
              </widget>
             </item>
             <item>
+             <spacer name="horizontalSpacer_2">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
              <widget class="QDoubleSpinBox" name="accel_spinbox">
+              <property name="minimumSize">
+               <size>
+                <width>130</width>
+                <height>0</height>
+               </size>
+              </property>
               <property name="decimals">
                <number>2</number>
               </property>
@@ -548,7 +567,7 @@
                <double>0.010000000000000</double>
               </property>
               <property name="maximum">
-               <double>1000.000000000000000</double>
+               <double>10000.000000000000000</double>
               </property>
               <property name="singleStep">
                <double>1.000000000000000</double>
@@ -561,18 +580,56 @@
            </layout>
           </item>
           <item>
+           <spacer name="verticalSpacer_5">
+            <property name="orientation">
+             <enum>Qt::Orientation::Vertical</enum>
+            </property>
+            <property name="sizeType">
+             <enum>QSizePolicy::Policy::Fixed</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>20</width>
+              <height>5</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+          <item>
            <layout class="QHBoxLayout" name="tool_layout">
             <item>
-             <widget class="QLabel" name="label_tool">
+             <widget class="QPushButton" name="btn_tool1_on">
               <property name="text">
-               <string>Tool 1:</string>
+               <string>Tool 1</string>
+              </property>
+              <property name="checkable">
+               <bool>true</bool>
               </property>
              </widget>
             </item>
             <item>
-             <widget class="QDoubleSpinBox" name="tool_spinbox">
+             <spacer name="horizontalSpacer">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
+             <widget class="QDoubleSpinBox" name="tool1_spinbox">
+              <property name="minimumSize">
+               <size>
+                <width>130</width>
+                <height>0</height>
+               </size>
+              </property>
               <property name="decimals">
-               <number>3</number>
+               <number>4</number>
               </property>
               <property name="minimum">
                <double>0.000000000000000</double>
@@ -584,7 +641,59 @@
                <double>0.100000000000000</double>
               </property>
               <property name="value">
+               <double>1.000000000000000</double>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="tool_layout_2">
+            <item>
+             <widget class="QPushButton" name="btn_tool2_on">
+              <property name="text">
+               <string>Tool 2</string>
+              </property>
+              <property name="checkable">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="horizontalSpacer_3">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
+             <widget class="QDoubleSpinBox" name="tool2_spinbox">
+              <property name="minimumSize">
+               <size>
+                <width>130</width>
+                <height>0</height>
+               </size>
+              </property>
+              <property name="decimals">
+               <number>4</number>
+              </property>
+              <property name="minimum">
                <double>0.000000000000000</double>
+              </property>
+              <property name="maximum">
+               <double>1.000000000000000</double>
+              </property>
+              <property name="singleStep">
+               <double>0.100000000000000</double>
+              </property>
+              <property name="value">
+               <double>1.000000000000000</double>
               </property>
              </widget>
             </item>
@@ -596,12 +705,12 @@
              <enum>Qt::Orientation::Vertical</enum>
             </property>
             <property name="sizeType">
-             <enum>QSizePolicy::Policy::Fixed</enum>
+             <enum>QSizePolicy::Policy::MinimumExpanding</enum>
             </property>
             <property name="sizeHint" stdset="0">
              <size>
               <width>20</width>
-              <height>32</height>
+              <height>20</height>
              </size>
             </property>
            </spacer>
@@ -637,7 +746,7 @@
           </sizepolicy>
          </property>
          <property name="currentIndex">
-          <number>0</number>
+          <number>1</number>
          </property>
          <widget class="QWidget" name="ConnectTab">
           <property name="styleSheet">
@@ -716,7 +825,8 @@ QPushButton:disabled {
               </font>
              </property>
              <property name="styleSheet">
-              <string notr="true">font: italic 11pt &quot;Noto Sans Vai&quot;;</string>
+              <string notr="true">font: italic 11pt &quot;Noto Sans Vai&quot;;
+color: rgb(80, 130, 140);</string>
              </property>
              <item>
               <property name="text">
@@ -817,7 +927,8 @@ QPushButton:disabled {
               </font>
              </property>
              <property name="styleSheet">
-              <string notr="true">font: italic 11pt &quot;Noto Sans Vai&quot;;</string>
+              <string notr="true">font: italic 11pt &quot;Noto Sans Vai&quot;;
+color: rgb(80, 130, 140);</string>
              </property>
             </widget>
            </item>
@@ -905,8 +1016,8 @@ QWidget#AdvancedTab QPushButton:disabled {
            <property name="topMargin">
             <number>15</number>
            </property>
-           <item row="2" column="0">
-            <widget class="QPushButton" name="btn_set_tracking">
+           <item row="4" column="0">
+            <widget class="QPushButton" name="btn_save_transform">
              <property name="minimumSize">
               <size>
                <width>60</width>
@@ -920,82 +1031,9 @@ QWidget#AdvancedTab QPushButton:disabled {
               </size>
              </property>
              <property name="text">
-              <string>Set Tracking Point</string>
+              <string>Save Transform</string>
              </property>
             </widget>
-           </item>
-           <item row="2" column="1">
-            <widget class="QPushButton" name="btn_clear">
-             <property name="minimumSize">
-              <size>
-               <width>60</width>
-               <height>40</height>
-              </size>
-             </property>
-             <property name="maximumSize">
-              <size>
-               <width>16777215</width>
-               <height>40</height>
-              </size>
-             </property>
-             <property name="text">
-              <string>Clear Tracker</string>
-             </property>
-            </widget>
-           </item>
-           <item row="5" column="0">
-            <widget class="QPushButton" name="btn_3point_alignment">
-             <property name="minimumSize">
-              <size>
-               <width>60</width>
-               <height>40</height>
-              </size>
-             </property>
-             <property name="maximumSize">
-              <size>
-               <width>16777215</width>
-               <height>40</height>
-              </size>
-             </property>
-             <property name="text">
-              <string>3-Point Alignment</string>
-             </property>
-            </widget>
-           </item>
-           <item row="4" column="1">
-            <widget class="QPushButton" name="btn_load_transform">
-             <property name="minimumSize">
-              <size>
-               <width>60</width>
-               <height>40</height>
-              </size>
-             </property>
-             <property name="maximumSize">
-              <size>
-               <width>16777215</width>
-               <height>40</height>
-              </size>
-             </property>
-             <property name="text">
-              <string>Load Transform</string>
-             </property>
-            </widget>
-           </item>
-           <item row="7" column="0" colspan="2">
-            <spacer name="verticalSpacer_3">
-             <property name="orientation">
-              <enum>Qt::Orientation::Vertical</enum>
-             </property>
-             <property name="sizeType">
-              <enum>QSizePolicy::Policy::MinimumExpanding</enum>
-             </property>
-             <property name="sizeHint" stdset="0">
-              <size>
-               <width>20</width>
-               <height>40</height>
-              </size>
-             </property>
-            </spacer>
            </item>
            <item row="5" column="1">
             <widget class="QPushButton" name="btn_fiber_alignment">
@@ -1019,8 +1057,8 @@ QWidget#AdvancedTab QPushButton:disabled {
              </property>
             </widget>
            </item>
-           <item row="4" column="0">
-            <widget class="QPushButton" name="btn_save_transform">
+           <item row="6" column="0" colspan="2">
+            <widget class="QPushButton" name="btn_calibrate_axis">
              <property name="minimumSize">
               <size>
                <width>60</width>
@@ -1034,7 +1072,99 @@ QWidget#AdvancedTab QPushButton:disabled {
               </size>
              </property>
              <property name="text">
-              <string>Save Transform</string>
+              <string>Calibrate Axis</string>
+             </property>
+            </widget>
+           </item>
+           <item row="2" column="1">
+            <widget class="QPushButton" name="btn_clear">
+             <property name="minimumSize">
+              <size>
+               <width>60</width>
+               <height>40</height>
+              </size>
+             </property>
+             <property name="maximumSize">
+              <size>
+               <width>16777215</width>
+               <height>40</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>Clear Tracker</string>
+             </property>
+            </widget>
+           </item>
+           <item row="2" column="0">
+            <widget class="QPushButton" name="btn_set_tracking">
+             <property name="minimumSize">
+              <size>
+               <width>60</width>
+               <height>40</height>
+              </size>
+             </property>
+             <property name="maximumSize">
+              <size>
+               <width>16777215</width>
+               <height>40</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>Set Tracking Point</string>
+             </property>
+            </widget>
+           </item>
+           <item row="7" column="0" colspan="2">
+            <spacer name="verticalSpacer_3">
+             <property name="orientation">
+              <enum>Qt::Orientation::Vertical</enum>
+             </property>
+             <property name="sizeType">
+              <enum>QSizePolicy::Policy::MinimumExpanding</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>20</width>
+               <height>40</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+           <item row="4" column="1">
+            <widget class="QPushButton" name="btn_load_transform">
+             <property name="minimumSize">
+              <size>
+               <width>60</width>
+               <height>40</height>
+              </size>
+             </property>
+             <property name="maximumSize">
+              <size>
+               <width>16777215</width>
+               <height>40</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>Load Transform</string>
+             </property>
+            </widget>
+           </item>
+           <item row="5" column="0">
+            <widget class="QPushButton" name="btn_3point_alignment">
+             <property name="minimumSize">
+              <size>
+               <width>60</width>
+               <height>40</height>
+              </size>
+             </property>
+             <property name="maximumSize">
+              <size>
+               <width>16777215</width>
+               <height>40</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>3-Point Alignment</string>
              </property>
             </widget>
            </item>
@@ -1194,6 +1324,13 @@ QPushButton:disabled {
             </widget>
            </item>
            <item>
+            <widget class="QProgressBar" name="gcode_progress_bar">
+             <property name="value">
+              <number>0</number>
+             </property>
+            </widget>
+           </item>
+           <item>
             <spacer name="verticalSpacer_2">
              <property name="orientation">
               <enum>Qt::Orientation::Vertical</enum>
@@ -1204,7 +1341,7 @@ QPushButton:disabled {
              <property name="sizeHint" stdset="0">
               <size>
                <width>20</width>
-               <height>40</height>
+               <height>10</height>
               </size>
              </property>
             </spacer>
@@ -1337,6 +1474,25 @@ QPushButton:disabled {
              </property>
              <property name="text">
               <string>Save Screenshot</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btn_dark_shot_compensation">
+             <property name="minimumSize">
+              <size>
+               <width>60</width>
+               <height>40</height>
+              </size>
+             </property>
+             <property name="maximumSize">
+              <size>
+               <width>16777215</width>
+               <height>40</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>Dark Shot Compensation</string>
              </property>
             </widget>
            </item>

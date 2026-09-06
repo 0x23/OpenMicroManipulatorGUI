@@ -25,14 +25,18 @@ from PySide6.QtCore import Qt, QSettings, QThread, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtUiTools import loadUiType
 from PySide6.QtWidgets import (
+    QApplication,
     QButtonGroup,
     QComboBox,
+    QDialog,
     QDoubleSpinBox,
     QFileDialog,
+    QLabel,
     QMainWindow,
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QVBoxLayout,
 )
 
 _ui_path = os.path.join(os.path.dirname(__file__), "mainwindow.ui")
@@ -71,6 +75,46 @@ class CameraStreamWorker(QThread):
                 self.stream_error.emit(str(exc))
 
 
+class CalibrationPlotDialog(QDialog):
+    """Shows the raw encoder counts over motor angle for each calibrated joint.
+
+    Mirrors the visualisation done by the standalone calibration_plotter.py, but
+    embeds the matplotlib canvas in a Qt dialog instead of opening a blocking window.
+    """
+
+    def __init__(self, joint_data, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Axis Calibration")
+        self.resize(900, 640)
+
+        # Imported lazily so the application still starts if matplotlib is missing.
+        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+        from matplotlib.backends.backend_qtagg import NavigationToolbar2QT
+        from matplotlib.figure import Figure
+
+        canvas = FigureCanvasQTAgg(Figure(figsize=(10, 7)))
+        ax = canvas.figure.subplots(1, 1)
+
+        for joint_index, data in joint_data:
+            # data[0]: motor angles, data[2]: raw encoder counts
+            ax.plot(data[0], data[2], label=f"Actuator {joint_index}")
+
+        ax.set_xlabel("Motor Angle [rad]")
+        ax.set_ylabel("Encoder Counts Raw")
+        ax.set_title("Encoder Count Plot")
+        ax.legend()
+        ax.grid(True)
+        canvas.figure.tight_layout()
+
+        saved_label = QLabel("Calibration saved to device")
+        saved_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(NavigationToolbar2QT(canvas, self))
+        layout.addWidget(canvas)
+        layout.addWidget(saved_label)
+
+
 class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
     def __init__(self, oms: OpenMicroStageInterface, camera=None):
         super().__init__()
@@ -81,7 +125,7 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
         self.gcode_runner = None
 
         self.settings = QSettings()
-        self.pixel_per_mm = 2000.0
+        self.pixel_per_mm = 2000.0/2.2
         self.connected_stage_label = None
         self.connected_camera_label = None
         self.serial_devices = []
@@ -138,7 +182,15 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
 
         # Spinbox signals
         self.accel_spinbox.editingFinished.connect(self.apply_acceleration_setting)
-        self.tool_spinbox.valueChanged.connect(self.apply_tool_setting)
+
+        # (tool index, value spinbox, on/off button) for every tool output.
+        self.tool_controls = [
+            (0, self.tool1_spinbox, self.btn_tool1_on),
+            (1, self.tool2_spinbox, self.btn_tool2_on),
+        ]
+        for tool_idx, spinbox, button in self.tool_controls:
+            button.toggled.connect(lambda _checked=False, i=tool_idx: self.apply_tool_setting(i))
+            spinbox.valueChanged.connect(lambda _value=0.0, i=tool_idx: self.apply_tool_setting(i))
         self.exposure_spinbox.valueChanged.connect(self.apply_camera_settings)
         self.gain_spinbox.valueChanged.connect(self.apply_camera_settings)
         self.white_balance_spinbox.valueChanged.connect(self.apply_camera_settings)
@@ -167,6 +219,7 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
         self.btn_load_transform.clicked.connect(self.load_transform)
         self.btn_save_transform.clicked.connect(self.save_transform)
         self.btn_fiber_alignment.clicked.connect(self.run_fiber_alignment)
+        self.btn_calibrate_axis.clicked.connect(self.run_axis_calibration)
 
         # Path / GCode tab
         self.btn_add_waypoint.clicked.connect(self.add_waypoint)
@@ -177,10 +230,12 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
 
         # Camera tab
         self.btn_save_screenshot.clicked.connect(self.save_screenshot)
+        self.btn_dark_shot_compensation.clicked.connect(self.capture_dark_image)
 
         # Home button
         self.btn_home.clicked.connect(self.home)
 
+        self.main_tabs.setCurrentIndex(0)
         self.update_waypoint_info()
 
     def register_stage_widget(self, widget):
@@ -202,6 +257,8 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
 
     def refresh_serial_devices(self):
         selected_id = self.serial_combo.currentData().get("id") if self.serial_combo.currentData() else None
+        if selected_id is None:
+            selected_id = self.settings.value("Connections/last_stage_id")
         self.serial_devices = list_serial_devices()
         self.serial_combo.clear()
 
@@ -218,6 +275,8 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
 
     def refresh_camera_devices(self):
         selected_id = self.camera_combo.currentData().get("id") if self.camera_combo.currentData() else None
+        if selected_id is None:
+            selected_id = self.settings.value("Connections/last_camera_id")
         self.camera_devices = list_camera_devices()
         self.camera_combo.clear()
 
@@ -289,6 +348,7 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
             return
 
         self.connected_stage_label = device["label"]
+        self.settings.setValue("Connections/last_stage_id", device["id"])
         self.on_stage_connected()
 
     def on_stage_connected(self):
@@ -297,7 +357,8 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
             self.current_pos = list(position)
 
         self.apply_acceleration_setting()
-        self.apply_tool_setting()
+        for tool_idx, _, _ in self.tool_controls:
+            self.apply_tool_setting(tool_idx)
         self.update_connection_state()
 
     def disconnect_stage(self):
@@ -347,6 +408,7 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
         self.disconnect_camera(show_placeholder=False)
         self.camera = camera
         self.connected_camera_label = config["label"]
+        self.settings.setValue("Connections/last_camera_id", config["id"])
         self.clear_visual_state()
         self.load_camera_settings(self.connected_camera_label)
         self.apply_camera_settings()
@@ -461,10 +523,14 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
         if self.oms.is_connected():
             self.oms.set_max_acceleration(self.accel_spinbox.value(), 5000)
 
-    def apply_tool_setting(self):
-        return # TODO: remove me this is just for testing
-        if self.oms.is_connected():
-            self.oms.set_tool_output(0, self.tool_spinbox.value(), immediate=True)
+    def apply_tool_setting(self, tool_idx):
+        # A tool outputs its spinbox value while its on/off button is checked, else 0.
+        if not self.oms.is_connected():
+            return
+
+        _, spinbox, button = self.tool_controls[tool_idx]
+        value = spinbox.value() if button.isChecked() else 0.0
+        self.oms.set_tool_output(tool_idx, value, immediate=True)
 
     def require_stage_connection(self):
         if self.oms.is_connected():
@@ -488,6 +554,34 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
         pos, _ = aligner.optimize()
         self.camera.start_grabbing(False)
         self.current_pos = pos
+
+    def run_axis_calibration(self, save_result=True):
+        if not self.require_stage_connection():
+            return
+
+        num_joints = 3
+        joint_data = []
+
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            for joint_index in range(num_joints):
+                # save_result=True persists the calibration on the controller.
+                res, data = self.oms.calibrate_joint(joint_index, save_result=save_result)
+                if data and len(data) >= 3 and len(data[0]) > 0:
+                    joint_data.append((joint_index, data))
+        except Exception as exc:
+            QApplication.restoreOverrideCursor()
+            QMessageBox.critical(self, "Calibration Failed", f"An error occurred during calibration:\n{exc}")
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        if not joint_data:
+            QMessageBox.warning(self, "Calibration Failed", "No calibration data was returned by the controller.")
+            return
+
+        dialog = CalibrationPlotDialog(joint_data, self)
+        dialog.show()
 
     def on_stop_realtime_control(self):
         if self.oms.is_connected():
@@ -676,7 +770,15 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
             def on_iteration_finished():
                 pass
 
-            self.gcode_runner.run(on_finished, on_iteration_finished, loop_playback=False)
+            self.gcode_runner.progress_updated.connect(
+                lambda fraction: self.gcode_progress_bar.setValue(int(fraction * 100))
+            )
+
+            self.gcode_runner.run(on_finished,
+                                  on_iteration_finished,
+                                  loop_playback=False,
+                                  tool_power=self.tool1_spinbox.value())
+            
         elif self.gcode_runner is not None:
             self.gcode_runner.stop()
 
@@ -764,6 +866,11 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
         self.disconnect_stage()
         super().closeEvent(event)
 
+    def capture_dark_image(self):
+        if not self.require_camera_connection():
+            return
+        self.camera.capture_dark_image()
+
     def save_screenshot(self):
         if self.last_frame is None:
             return
@@ -779,32 +886,25 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
         self.realtime_control_widget.stop_control()
         pos = self.oms.read_current_position(True)
 
-        mode = 2
-        if mode == 0:
-            num_cycles = 8
-            y = pos[1]
-            for _ in range(num_cycles):
-                self.oms.set_tool_output(0, self.tool_spinbox.value(), False)
-                self.oms.dwell(0.05, False)
-                self.oms.set_tool_output(0, 0.00, False)
-                self.oms.move_to(pos[0], y, pos[2]-0.005, 10)
-                self.oms.dwell(0.05, False)
-                y += 0.01
-                self.oms.move_to(pos[0], y, pos[2], 10)
-            self.oms.move_to(pos[0], pos[1], pos[2]-0.01, 10)
-            self.oms.dwell(0.1, True)
-        if mode == 1:
+        mode = 1
+        if mode == -1:
+            self.oms.set_tool_output(0, self.tool1_spinbox.value(), False)
+            self.oms.dwell(0.1, False)
+            self.oms.set_tool_output(0, 0.00, False)
+            self.oms.dwell(0.1, False)
+            return
+        if mode == 1: # row
             num_cycles = 1
             on_step = 0.05
             off_step = 0.00
             accel_step = 0.001
             decel_step = 0.001
-            feed = 0.1
+            feed = 0.05
 
             y = pos[1] + accel_step
             self.oms.move_to(pos[0], y, pos[2], feed)
             for _ in range(num_cycles):
-                self.oms.set_tool_output(0, self.tool_spinbox.value(), False)
+                self.oms.set_tool_output(0, self.tool1_spinbox.value(), False)
                 y += on_step
                 self.oms.move_to(pos[0], y, pos[2], feed)
                 self.oms.set_tool_output(0, 0.00, False)
@@ -818,14 +918,41 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
             side = 0.05
             feed = 0.1
 
-            self.oms.set_tool_output(0, self.tool_spinbox.value(), False)
+            self.oms.set_tool_output(0, self.tool1_spinbox.value(), False)
             self.oms.move_to(pos[0]-side, pos[1], pos[2], feed)
             self.oms.move_to(pos[0]-side, pos[1]+side, pos[2], feed)
             self.oms.move_to(pos[0], pos[1]+side, pos[2], feed)
             self.oms.move_to(pos[0], pos[1], pos[2], feed)
-            self.oms.move_to(pos[0], pos[1], pos[2]-0.002, feed)
+            self.oms.move_to(pos[0], pos[1], pos[2]-0.003, feed)
             self.oms.set_tool_output(0, 0.0, False)
             self.oms.dwell(0.1, True)
+        if mode == 3:
+            num_lines = 10
+            spacing = 0.01
+            length = 0.3
+            feed = 0.1
+            up = pos[2] - 0.01
+
+            self.oms.set_tool_output(0, self.tool1_spinbox.value(), False)
+            for i in range(num_lines):
+                x = pos[0] + i * spacing
+                if i > 0:
+                    self.oms.move_to(x, pos[1], up, feed*10)
+                self.oms.move_to(x, pos[1], pos[2], feed*10)
+                self.oms.set_tool_output(0, self.tool1_spinbox.value(), False)
+                self.oms.move_to(x, pos[1] + length, pos[2], feed)
+                self.oms.set_tool_output(0, 0.0, False)
+
+            self.oms.move_to(pos[0], pos[1], pos[2], feed)
+            self.oms.move_to(pos[0], pos[1], pos[2]+0.003, feed)
+            self.oms.set_tool_output(0, 0.0, False)
+            self.oms.dwell(0.1, True)
+        if mode == 4:
+            on_time_s = self.tool1_spinbox.value()
+            self.oms.set_tool_output(0, 1.0, False)
+            self.oms.dwell(on_time_s, True)
+            self.oms.set_tool_output(0, 0.0, False)
+            self.oms.dwell(0.5, True)
 
         pass
 

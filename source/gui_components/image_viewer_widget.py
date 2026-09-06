@@ -157,7 +157,7 @@ class ImageViewerWidget(QGraphicsView):
         painter.restore()
 
     def wheelEvent(self, event):
-        zoom_in_factor = 1.1
+        zoom_in_factor = 1.02
         zoom_out_factor = 1 / zoom_in_factor
         rect = self.transform().mapRect(self._scene.sceneRect())
         view_rect = self.viewport().rect()

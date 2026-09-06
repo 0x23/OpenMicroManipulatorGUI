@@ -256,13 +256,13 @@ class RealtimeControllerWidget(QWidget, Ui_RealtimeControllerWidget):
         return True
 
     def handle_mouse_press(self, event: QMouseEvent):
-        if event.button() == Qt.MouseButton.LeftButton and self.update_thread is not None:
-            self.update_thread.set_position_offset(0, 0, 0.1)
+        # if event.button() == Qt.MouseButton.LeftButton and self.update_thread is not None:
+        #    self.update_thread.set_position_offset(0, 0, 0.1)
         return True
 
     def handle_mouse_release(self, event: QMouseEvent):
-        if event.button() == Qt.MouseButton.LeftButton and self.update_thread is not None:
-            self.update_thread.set_position_offset(0, 0, 0.0)
+        # if event.button() == Qt.MouseButton.LeftButton and self.update_thread is not None:
+        #    self.update_thread.set_position_offset(0, 0, 0.0)
         return True
 
     def handle_key_press(self, event):

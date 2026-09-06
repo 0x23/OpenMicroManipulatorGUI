@@ -195,6 +195,9 @@ class BaslerCamera(AbstractCamera):
         finally:
             self.stop_grabbing()
 
+    def capture_dark_image(self, n_frames: int = 10):
+        pass
+
     def close(self):
         self.stop_grabbing()
 

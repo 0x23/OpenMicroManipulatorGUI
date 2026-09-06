@@ -21,6 +21,7 @@ from hardware.device_discovery import list_camera_devices, list_serial_devices
 from hardware.open_micro_stage_api import OpenMicroStageInterface
 from image_processing.image_point_tracker import ImagePointTracker
 from optical_alignment import OpticalAlignment
+from version import __version__
 from PySide6.QtCore import Qt, QSettings, QThread, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtUiTools import loadUiType
@@ -162,6 +163,7 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
 
     def init_ui(self):
         self.setupUi(self)
+        self.setWindowTitle(f"{self.windowTitle()}  v{__version__}")
 
         self.video_viewer.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -191,6 +193,7 @@ class DeviceControlMainWindow(QMainWindow, Ui_DeviceControlMainWindow):
         for tool_idx, spinbox, button in self.tool_controls:
             button.toggled.connect(lambda _checked=False, i=tool_idx: self.apply_tool_setting(i))
             spinbox.valueChanged.connect(lambda _value=0.0, i=tool_idx: self.apply_tool_setting(i))
+
         self.exposure_spinbox.valueChanged.connect(self.apply_camera_settings)
         self.gain_spinbox.valueChanged.connect(self.apply_camera_settings)
         self.white_balance_spinbox.valueChanged.connect(self.apply_camera_settings)

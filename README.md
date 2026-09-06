@@ -9,6 +9,11 @@ You  can find the Open Micro-Manipulator repository.
   <img src="images/grain_manipulation_1.jpg" alt="Grain manipulation example" width="49%">
 </div>
 
+## ✨New Version 0.1.3
+
+The version incudes several general improvements, controlls for the tool output and changes to the g-code parser to support the **Fiber Immersion Micro 3D-Printing Method**.
+
+
 ## ⬇️ Installation
 
 1. Clone the repository and navigate into the project directory.

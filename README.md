@@ -40,8 +40,8 @@ Usage: Set three wayoints spanning a triangle (points must not be on a line) in 
 The G-Code runner supports **simple absolute movement commands** of the form: `G0 X Y Z F`. All other commands are ignored.
 You may press the 'Set Origin' button to set the current device loaction as zero position for running the G-Code.
 
-> ⚠️ **Warning**  
-> Running G-Code that exceeds the machine’s physical limits may cause rapid and uncontrolled movements. Use with caution.
+> [!WARNING]
+> Running G-Code that exceeds the machine's physical limits may cause rapid and uncontrolled movements. Use with caution.
 
 ### Scaling
 A custom scaling directive can be added at the beginning of a G-Code file: `SCALE=0.123`.
